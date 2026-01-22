@@ -2,24 +2,25 @@
 
 require "tempfile"
 require_relative "snapshot"
+require_relative "git_recovery"
 
 module Mighost
   class Rollbacker
-    attr_reader :version, :snapshot
+    attr_reader :version, :content, :filename, :recovery_source
 
     def initialize(version)
       @version = version.to_s
-      @snapshot = Snapshot.find_by_version(@version)
+      load_recovery_data
     end
 
     def rollback!
-      raise SnapshotNotFound, "No snapshot found for version #{version}" unless snapshot
+      raise SnapshotNotFound, "No snapshot or git recovery found for version #{version}" unless can_rollback?
 
       temp_file = write_temp_migration
       begin
         load_and_execute_down(temp_file)
         remove_from_schema_migrations
-        Snapshot.delete_by_version(version)
+        Snapshot.delete_by_version(version) if recovery_source == :snapshot
       ensure
         temp_file.close
         temp_file.unlink
@@ -27,14 +28,33 @@ module Mighost
     end
 
     def can_rollback?
-      snapshot.present?
+      content.present?
     end
 
     private
 
+    def load_recovery_data
+      # Try snapshot first
+      snapshot = Snapshot.find_by_version(version)
+      if snapshot
+        @content = snapshot.content
+        @filename = snapshot.filename
+        @recovery_source = :snapshot
+        return
+      end
+
+      # Fallback to git recovery
+      git_data = GitRecovery.find_migration(version)
+      if git_data
+        @content = git_data[:content]
+        @filename = git_data[:filename]
+        @recovery_source = :git
+      end
+    end
+
     def write_temp_migration
       temp = Tempfile.new(["migration_#{version}_", ".rb"])
-      temp.write(snapshot.content)
+      temp.write(content)
       temp.flush
       temp
     end
@@ -46,7 +66,7 @@ module Mighost
       # Find the migration class
       migration_class = find_migration_class
 
-      raise RollbackFailed, "Could not find migration class in #{snapshot.filename}" unless migration_class
+      raise RollbackFailed, "Could not find migration class in #{filename}" unless migration_class
 
       # Execute down
       migration_instance = migration_class.new
@@ -67,7 +87,7 @@ module Mighost
     end
 
     def extract_class_name
-      match = snapshot.content.match(/class\s+(\w+)\s*<\s*ActiveRecord::Migration/)
+      match = content.match(/class\s+(\w+)\s*<\s*ActiveRecord::Migration/)
       match[1] if match
     end
 

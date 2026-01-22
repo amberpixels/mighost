@@ -6,8 +6,9 @@ require "mighost/rollbacker"
 require "mighost/snapshot"
 
 namespace :mighost do
-  desc "Show orphaned migrations (in DB but no file)"
+  desc "Show orphaned migrations (in DB but no file). DEBUG=1 for verbose output"
   task status: :environment do
+    Mighost::OrphanDetector.debug = ENV["DEBUG"] == "1"
     orphans = Mighost::OrphanDetector.detect
 
     if orphans.empty?
@@ -17,8 +18,8 @@ namespace :mighost do
 
     recoverable_count = orphans.count(&:recoverable?)
     puts "\nOrphaned Migrations (#{orphans.count} total, #{recoverable_count} recoverable):\n\n"
-    puts format("%-18s %-12s %-12s %-12s %s", "Version", "Branch", "SHA", "Recoverable", "Name")
-    puts "-" * 85
+    puts format("%-18s %-15s %-12s %-14s %s", "Version", "Branch", "SHA", "Recovery", "Name")
+    puts "-" * 90
 
     orphans.each do |orphan|
       # Parse version (YYYYMMDDHHmmss) into readable date
@@ -31,12 +32,18 @@ namespace :mighost do
       # Extract migration name from filename (remove timestamp prefix and .rb suffix)
       name = orphan.filename&.sub(/^\d+_/, "")&.sub(/\.rb$/, "") || "(unknown)"
 
+      recovery = case orphan.recovery_source
+                 when :snapshot then "snapshot"
+                 when :git then "git"
+                 else "-"
+                 end
+
       puts format(
-        "%-18s %-12s %-12s %-12s %s",
+        "%-18s %-15s %-12s %-14s %s",
         version,
-        (orphan.branch_name || "-")[0, 12],
+        (orphan.branch_name || "-")[0, 15],
         orphan.git_sha || "-",
-        orphan.recoverable? ? "Yes" : "No",
+        recovery,
         name
       )
     end
