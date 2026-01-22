@@ -1,35 +1,30 @@
 # frozen_string_literal: true
 
 require_relative "snapshot"
-require_relative "git_recovery"
+require_relative "git_metadata"
 
 module Mighost
   class OrphanDetector
     class OrphanedMigration
-      attr_reader :version, :filename, :branch_name, :git_sha, :migrated_at
-      attr_reader :has_snapshot, :has_git_recovery, :git_recovery_data
+      attr_reader :version, :filename, :branch_name, :git_sha, :migrated_at, :source
 
-      def initialize(version:, filename: nil, branch_name: nil, git_sha: nil, migrated_at: nil,
-                     has_snapshot: false, git_recovery_data: nil)
+      def initialize(version:, filename: nil, branch_name: nil, git_sha: nil, migrated_at: nil, source: nil)
         @version = version
         @filename = filename
         @branch_name = branch_name
         @git_sha = git_sha
         @migrated_at = migrated_at
-        @has_snapshot = has_snapshot
-        @git_recovery_data = git_recovery_data
-        @has_git_recovery = git_recovery_data.present?
+        @source = source
       end
 
       def recoverable?
-        has_snapshot || has_git_recovery
+        source.present?
       end
 
       def recovery_source
-        if has_snapshot
-          :snapshot
-        elsif has_git_recovery
-          :git
+        case source
+        when "file" then :snapshot
+        when "git" then :git
         end
       end
     end
@@ -37,6 +32,7 @@ module Mighost
     class << self
       attr_accessor :debug
 
+      # Detect orphaned migrations using cached snapshot data only (instant)
       def detect
         orphaned = []
         versions = migrated_versions
@@ -52,28 +48,19 @@ module Mighost
           log "  [#{idx + 1}/#{versions.count}] #{version} - orphaned, checking snapshot..."
           snapshot = Snapshot.find_by_version(version)
 
-          # If no snapshot, try to find in git history
-          git_recovery_data = nil
-          if snapshot.nil?
-            log "    No snapshot, searching git history..."
-            git_recovery_data = GitRecovery.find_migration(version)
-            if git_recovery_data
-              log "    Found in git: #{git_recovery_data[:branch]} @ #{git_recovery_data[:sha]}"
-            else
-              log "    Not found in git"
-            end
+          if snapshot
+            log "    Found snapshot: #{snapshot.filename} (source: #{snapshot.source})"
           else
-            log "    Found snapshot: #{snapshot.filename}"
+            log "    No snapshot found"
           end
 
           orphaned << OrphanedMigration.new(
             version: version,
-            filename: snapshot&.filename || git_recovery_data&.dig(:filename),
-            branch_name: snapshot&.branch_name || git_recovery_data&.dig(:branch),
-            git_sha: snapshot&.git_sha || git_recovery_data&.dig(:sha),
+            filename: snapshot&.filename,
+            branch_name: snapshot&.branch_name,
+            git_sha: snapshot&.git_sha,
             migrated_at: snapshot&.migrated_at,
-            has_snapshot: snapshot.present?,
-            git_recovery_data: git_recovery_data
+            source: snapshot&.source
           )
         end
 
@@ -87,6 +74,22 @@ module Mighost
 
       def recoverable_count
         detect.count(&:recoverable?)
+      end
+
+      # Get stored scan metadata
+      def scan_metadata
+        Snapshot.scan_metadata
+      end
+
+      # Check if current branch/sha differs from last scan
+      def branch_changed?
+        metadata = scan_metadata
+        return false unless metadata
+
+        current_branch = GitMetadata.current_branch
+        current_sha = GitMetadata.current_sha
+
+        metadata[:branch] != current_branch || metadata[:sha] != current_sha
       end
 
       private

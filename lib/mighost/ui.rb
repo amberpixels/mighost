@@ -166,6 +166,10 @@ module Mighost
         puts pastel.cyan(msg)
       end
 
+      def hint(msg)
+        puts pastel.dim("Hint: #{msg}")
+      end
+
       private
 
       def format_version(version)

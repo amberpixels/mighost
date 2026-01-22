@@ -5,6 +5,8 @@ require "mighost/orphan_detector"
 require "mighost/rollbacker"
 require "mighost/snapshot"
 require "mighost/ui"
+require "mighost/git_metadata"
+require "mighost/git_recovery"
 
 namespace :mighost do
   desc "Show available commands"
@@ -16,7 +18,7 @@ namespace :mighost do
         rails mighost:status              Show orphaned migrations (in DB but no file)
         rails mighost:rollback            Rollback orphaned migrations (interactive)
         rails mighost:rollback VERSION=x  Rollback specific migration
-        rails mighost:scan                Capture existing migrations (initial setup)
+        rails mighost:scan                Capture migrations + search git for orphans
         rails mighost:list (ls)           List stored migration records
         rails mighost:cleanup             Remove stale records
 
@@ -41,6 +43,13 @@ namespace :mighost do
     orphans = Mighost::OrphanDetector.detect
 
     Mighost::UI.render_orphans_table(orphans)
+
+    # Check for branch change if there are non-recoverable orphans
+    non_recoverable = orphans.reject(&:recoverable?)
+    if non_recoverable.any? && Mighost::OrphanDetector.branch_changed?
+      puts ""
+      Mighost::UI.hint "Branch changed since last scan. Run 'rails mighost:scan' to update recovery info."
+    end
   end
 
   desc "Rollback orphaned migrations. VERSION=xxx for specific, FORCE=1 to skip confirmation"
@@ -104,7 +113,7 @@ namespace :mighost do
     Mighost::UI.info "Done: #{results[:rolled_back].size} rolled back, #{results[:skipped].size} skipped, #{results[:failed].size} failed"
   end
 
-  desc "Scan and capture existing migrations (for initial setup)"
+  desc "Scan and capture existing migrations, search git for orphans"
   task scan: :environment do
     migration_paths = Rails.application.config.paths["db/migrate"].to_ary
     migrated_versions = ActiveRecord::Base.connection
@@ -112,7 +121,9 @@ namespace :mighost do
                                           .map(&:to_s)
 
     captured = 0
+    git_recovered = 0
 
+    # Phase 1: Capture existing migration files
     migration_paths.each do |path|
       Dir.glob(File.join(path, "*.rb")).each do |file|
         basename = File.basename(file)
@@ -127,7 +138,45 @@ namespace :mighost do
       end
     end
 
-    Mighost::UI.success "\nCaptured #{captured} migration(s)."
+    # Phase 2: Search git for orphaned migrations without recovery info
+    Mighost::UI.info "\nSearching git history for orphaned migrations..."
+
+    orphan_versions = migrated_versions.reject do |version|
+      # Has file on disk?
+      migration_paths.any? { |p| Dir.glob(File.join(p, "#{version}_*.rb")).any? }
+    end
+
+    orphan_versions.each do |version|
+      # Already have a snapshot for this version?
+      next if Mighost::Snapshot.find_by_version(version)
+
+      # Search git history
+      git_data = Mighost::GitRecovery.find_migration(version)
+      next unless git_data
+
+      Mighost::Snapshot.store(
+        version: version,
+        content: git_data[:content],
+        filename: git_data[:filename],
+        branch_name: git_data[:branch],
+        git_sha: git_data[:sha],
+        source: "git"
+      )
+      Mighost::UI.info "Git recovered: #{git_data[:filename]} (from #{git_data[:branch]})"
+      git_recovered += 1
+    end
+
+    # Phase 3: Store scan metadata
+    current_branch = Mighost::GitMetadata.current_branch
+    current_sha = Mighost::GitMetadata.current_sha
+    Mighost::Snapshot.store_scan_metadata(branch: current_branch, sha: current_sha)
+
+    # Summary
+    puts ""
+    Mighost::UI.success "Scan complete:"
+    Mighost::UI.info "  - Captured #{captured} migration(s) from files"
+    Mighost::UI.info "  - Recovered #{git_recovered} orphan(s) from git history"
+    Mighost::UI.info "  - Scan context: #{current_branch} @ #{current_sha}"
   end
 
   desc "List stored migration records (LIMIT=N to limit)"
