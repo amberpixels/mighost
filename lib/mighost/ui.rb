@@ -150,6 +150,24 @@ module Mighost
         end
       end
 
+      # Interactive confirmation for dismiss
+      # Returns :yes, :no, :all, or :quit
+      def confirm_dismiss?(version, name)
+        formatted_version = format_version(version)
+
+        print "\nDismiss #{pastel.cyan(formatted_version)} #{name}? "
+        print "[#{pastel.green("y")}es/#{pastel.red("n")}o/#{pastel.green("a")}ll/#{pastel.red("q")}uit] "
+
+        response = $stdin.gets.chomp.downcase
+        case response
+        when "y", "yes" then :yes
+        when "n", "no", "" then :no
+        when "a", "all" then :all
+        when "q", "quit" then :quit
+        else :no
+        end
+      end
+
       def success(msg)
         puts pastel.green(msg)
       end
@@ -170,8 +188,6 @@ module Mighost
         puts pastel.dim("Hint: #{msg}")
       end
 
-      private
-
       def format_version(version)
         if version =~ /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/
           "#{$1}-#{$2}-#{$3} #{$4}:#{$5}"
@@ -179,6 +195,8 @@ module Mighost
           version
         end
       end
+
+      private
 
       def format_name(filename)
         return "(unknown)" unless filename

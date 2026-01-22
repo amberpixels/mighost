@@ -4,7 +4,8 @@ require "active_record"
 
 module Mighost
   class Snapshot
-    attr_accessor :id, :version, :content, :filename, :branch_name, :git_sha, :content_hash, :migrated_at, :source
+    attr_accessor :id, :version, :content, :filename, :branch_name, :git_sha, :content_hash, :migrated_at, :source,
+                  :dismissed, :dismissed_at
 
     # Special version used to store scan metadata
     SCAN_METADATA_VERSION = "__scan_metadata__"
@@ -68,6 +69,61 @@ module Mighost
         { branch: record.branch_name, sha: record.git_sha }
       end
 
+      # Dismiss a migration (mark as hidden)
+      def dismiss(version)
+        ensure_table_exists!
+        existing = find_by_version(version)
+
+        if existing
+          # Update existing record
+          if Mighost.configuration.stealth_mode?
+            stealth_update_dismissed(version, true)
+          else
+            ar_update_dismissed(version, true)
+          end
+        else
+          # Create new record for unknown orphan
+          store(
+            version: version,
+            content: "",
+            filename: "",
+            source: nil
+          )
+          if Mighost.configuration.stealth_mode?
+            stealth_update_dismissed(version, true)
+          else
+            ar_update_dismissed(version, true)
+          end
+        end
+
+        find_by_version(version)
+      end
+
+      # Undismiss a migration (restore visibility)
+      def undismiss(version)
+        ensure_table_exists!
+        existing = find_by_version(version)
+        return nil unless existing
+
+        if Mighost.configuration.stealth_mode?
+          stealth_update_dismissed(version, false)
+        else
+          ar_update_dismissed(version, false)
+        end
+
+        find_by_version(version)
+      end
+
+      # Get all dismissed versions
+      def dismissed_versions
+        ensure_table_exists!
+        if Mighost.configuration.stealth_mode?
+          stealth_dismissed_versions
+        else
+          ar_dismissed_versions
+        end
+      end
+
       def delete_by_version(version)
         ensure_table_exists!
         if Mighost.configuration.stealth_mode?
@@ -117,19 +173,27 @@ module Mighost
             git_sha TEXT,
             content_hash TEXT,
             migrated_at TEXT NOT NULL,
-            source TEXT DEFAULT 'file'
+            source TEXT DEFAULT 'file',
+            dismissed INTEGER DEFAULT 0,
+            dismissed_at TEXT
           )
         SQL
         stealth_db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_#{table_name}_version ON #{table_name}(version)")
-        stealth_migrate_add_source_column!
+        stealth_migrate_columns!
       end
 
-      def stealth_migrate_add_source_column!
-        # Check if source column exists
+      def stealth_migrate_columns!
         columns = stealth_db.execute("PRAGMA table_info(#{table_name})").map { |c| c[1] }
-        return if columns.include?("source")
 
-        stealth_db.execute("ALTER TABLE #{table_name} ADD COLUMN source TEXT DEFAULT 'file'")
+        unless columns.include?("source")
+          stealth_db.execute("ALTER TABLE #{table_name} ADD COLUMN source TEXT DEFAULT 'file'")
+        end
+        unless columns.include?("dismissed")
+          stealth_db.execute("ALTER TABLE #{table_name} ADD COLUMN dismissed INTEGER DEFAULT 0")
+        end
+        unless columns.include?("dismissed_at")
+          stealth_db.execute("ALTER TABLE #{table_name} ADD COLUMN dismissed_at TEXT")
+        end
       end
 
       def stealth_find_by_version(version)
@@ -139,8 +203,25 @@ module Mighost
         )
         return nil unless row
 
-        cols = %i[id version content filename branch_name git_sha content_hash migrated_at source]
-        new(cols.zip(row).to_h)
+        cols = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at]
+        record = new(cols.zip(row).to_h)
+        record.dismissed = record.dismissed == 1 # SQLite stores as integer
+        record
+      end
+
+      def stealth_update_dismissed(version, dismissed)
+        dismissed_at = dismissed ? Time.current.iso8601 : nil
+        stealth_db.execute(
+          "UPDATE #{table_name} SET dismissed = ?, dismissed_at = ? WHERE version = ?",
+          [dismissed ? 1 : 0, dismissed_at, version.to_s]
+        )
+      end
+
+      def stealth_dismissed_versions
+        stealth_db.execute(
+          "SELECT version FROM #{table_name} WHERE dismissed = 1 AND version != ?",
+          [SCAN_METADATA_VERSION]
+        ).flatten
       end
 
       def stealth_store(version:, content:, filename:, branch_name:, git_sha:, source:)
@@ -169,12 +250,14 @@ module Mighost
       end
 
       def stealth_all_snapshots
-        cols = %i[id version content filename branch_name git_sha content_hash migrated_at source]
+        cols = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at]
         stealth_db.execute(
           "SELECT * FROM #{table_name} WHERE version != ? ORDER BY migrated_at DESC",
           [SCAN_METADATA_VERSION]
         ).map do |row|
-          new(cols.zip(row).to_h)
+          record = new(cols.zip(row).to_h)
+          record.dismissed = record.dismissed == 1
+          record
         end
       end
 
@@ -204,7 +287,7 @@ module Mighost
       def ensure_ar_table_exists!
         conn = ar_connection
         if conn.table_exists?(table_name)
-          ar_migrate_add_source_column!
+          ar_migrate_columns!
           return
         end
 
@@ -217,16 +300,42 @@ module Mighost
           t.string :content_hash
           t.datetime :migrated_at, null: false
           t.string :source, default: "file"
+          t.boolean :dismissed, default: false
+          t.datetime :dismissed_at
 
           t.index :version, unique: true
         end
       end
 
-      def ar_migrate_add_source_column!
+      def ar_migrate_columns!
         conn = ar_connection
-        return if conn.column_exists?(table_name, :source)
+        unless conn.column_exists?(table_name, :source)
+          conn.add_column table_name, :source, :string, default: "file"
+        end
+        unless conn.column_exists?(table_name, :dismissed)
+          conn.add_column table_name, :dismissed, :boolean, default: false
+        end
+        unless conn.column_exists?(table_name, :dismissed_at)
+          conn.add_column table_name, :dismissed_at, :datetime
+        end
+      end
 
-        conn.add_column table_name, :source, :string, default: "file"
+      def ar_update_dismissed(version, dismissed)
+        conn = ar_connection
+        dismissed_at = dismissed ? Time.current : nil
+        conn.execute(<<~SQL)
+          UPDATE #{table_name}
+          SET dismissed = #{conn.quote(dismissed)},
+              dismissed_at = #{conn.quote(dismissed_at&.iso8601)}
+          WHERE version = #{conn.quote(version.to_s)}
+        SQL
+      end
+
+      def ar_dismissed_versions
+        conn = ar_connection
+        conn.select_values(
+          "SELECT version FROM #{table_name} WHERE dismissed = #{conn.quote(true)} AND version != #{conn.quote(SCAN_METADATA_VERSION)}"
+        )
       end
 
       def ar_find_by_version(version)

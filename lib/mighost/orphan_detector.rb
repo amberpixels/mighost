@@ -6,15 +6,16 @@ require_relative "git_metadata"
 module Mighost
   class OrphanDetector
     class OrphanedMigration
-      attr_reader :version, :filename, :branch_name, :git_sha, :migrated_at, :source
+      attr_reader :version, :filename, :branch_name, :git_sha, :migrated_at, :source, :dismissed
 
-      def initialize(version:, filename: nil, branch_name: nil, git_sha: nil, migrated_at: nil, source: nil)
+      def initialize(version:, filename: nil, branch_name: nil, git_sha: nil, migrated_at: nil, source: nil, dismissed: false)
         @version = version
         @filename = filename
         @branch_name = branch_name
         @git_sha = git_sha
         @migrated_at = migrated_at
         @source = source
+        @dismissed = dismissed
       end
 
       def recoverable?
@@ -33,9 +34,11 @@ module Mighost
       attr_accessor :debug
 
       # Detect orphaned migrations using cached snapshot data only (instant)
-      def detect
+      # @param include_dismissed [Boolean] whether to include dismissed migrations (default: false)
+      def detect(include_dismissed: false)
         orphaned = []
         versions = migrated_versions
+        dismissed_versions = Snapshot.dismissed_versions
 
         log "Found #{versions.count} migrated versions, checking for orphans..."
 
@@ -43,6 +46,14 @@ module Mighost
           if migration_file_exists?(version)
             log "  [#{idx + 1}/#{versions.count}] #{version} - file exists, skipping"
             next
+          end
+
+          is_dismissed = dismissed_versions.include?(version)
+          unless include_dismissed
+            if is_dismissed
+              log "  [#{idx + 1}/#{versions.count}] #{version} - dismissed, skipping"
+              next
+            end
           end
 
           log "  [#{idx + 1}/#{versions.count}] #{version} - orphaned, checking snapshot..."
@@ -60,7 +71,8 @@ module Mighost
             branch_name: snapshot&.branch_name,
             git_sha: snapshot&.git_sha,
             migrated_at: snapshot&.migrated_at,
-            source: snapshot&.source
+            source: snapshot&.source,
+            dismissed: is_dismissed
           )
         end
 
