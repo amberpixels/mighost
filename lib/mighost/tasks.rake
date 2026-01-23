@@ -166,8 +166,9 @@ namespace :mighost do
     end
 
     orphan_versions.each do |version|
-      # Already have a snapshot for this version?
-      next if Mighost::Snapshot.find_by_version(version)
+      # Check if we already have a snapshot with recovery info
+      existing = Mighost::Snapshot.find_by_version(version)
+      next if existing&.source.present?
 
       # Search git history
       git_data = Mighost::GitRecovery.find_migration(version)

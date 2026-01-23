@@ -36,18 +36,18 @@ module Mighost
       private
 
       def find_latest_commit_with_file(pattern)
-        # Use git log --all --source to search across ALL refs in a single command
-        # --source shows which ref was used to reach the commit
+        # Use git log --all to search across ALL refs in a single command
+        # %D shows decorated refs (branches/tags pointing to commit)
         # --name-only includes the filename in output
-        output = `git log --all --source -1 --format='%H|%aI|%S' --name-only -- #{shell_escape(pattern)} 2>/dev/null`.strip
+        output = `git log --all -1 --format='%H|%aI|%D' --name-only -- #{shell_escape(pattern)} 2>/dev/null`.strip
         return nil if output.empty?
 
         lines = output.split("\n").map(&:strip).reject(&:empty?)
         return nil if lines.empty?
 
-        # First non-empty line: commit info (sha|date|source_ref)
+        # First non-empty line: commit info (sha|date|decorated_refs)
         commit_line = lines[0]
-        sha, date_str, source_ref = commit_line.split("|", 3)
+        sha, date_str, decorated_refs = commit_line.split("|", 3)
         return nil unless sha && date_str
 
         # Second non-empty line: the file path
@@ -57,8 +57,11 @@ module Mighost
         date = Time.parse(date_str) rescue nil
         return nil unless date
 
-        # Clean up the source ref (remove refs/heads/, refs/remotes/, etc.)
-        branch = clean_ref_name(source_ref)
+        # Extract branch name from decorated refs (may be empty if commit is not a branch tip)
+        branch = extract_branch_from_decorated_refs(decorated_refs)
+
+        # If no branch found from decoration, try to find which branch contains this commit
+        branch ||= find_branch_containing_commit(sha)
 
         {
           sha: sha,
@@ -68,14 +71,40 @@ module Mighost
         }
       end
 
-      def clean_ref_name(ref)
-        return nil if ref.nil? || ref.empty?
+      def extract_branch_from_decorated_refs(refs)
+        return nil if refs.nil? || refs.strip.empty?
 
-        ref = ref.strip
-        ref = ref.sub(%r{^refs/remotes/}, "")
-        ref = ref.sub(%r{^refs/heads/}, "")
-        ref = ref.sub(%r{^origin/}, "")
-        ref.empty? ? nil : ref
+        # Decorated refs look like: "HEAD -> main, origin/main, feature-branch"
+        # Extract the first branch-like ref
+        refs.split(",").each do |ref|
+          ref = ref.strip
+          ref = ref.sub(/^HEAD -> /, "")
+          ref = ref.sub(%r{^origin/}, "")
+          next if ref.empty? || ref.start_with?("tag:")
+
+          return ref
+        end
+        nil
+      end
+
+      def find_branch_containing_commit(sha)
+        # Find branches that contain this commit
+        output = `git branch -a --contains #{sha} 2>/dev/null`.strip
+        return nil if output.empty?
+
+        # Parse output - each line is a branch name, current branch has * prefix
+        lines = output.split("\n").map { |l| l.sub(/^\*?\s*/, "").strip }
+        return nil if lines.empty?
+
+        # Prefer local branches over remote, clean up names
+        lines.each do |branch|
+          next if branch.start_with?("remotes/")
+          return branch
+        end
+
+        # Fall back to first remote branch, cleaned up
+        first = lines.first
+        first&.sub(%r{^remotes/origin/}, "")
       end
 
       def get_file_content(sha, path)
