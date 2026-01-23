@@ -20,6 +20,9 @@ module Mighost
     # Enabled environments (disabled in production by default)
     attr_accessor :enabled
 
+    # Threshold for suggesting dismissal of old unrecoverable migrations
+    attr_accessor :dismiss_old_threshold
+
     def initialize
       @storage = :stealth
       @stealth_storage_path = ".mighost.sqlite3"
@@ -27,6 +30,7 @@ module Mighost
       @auto_capture = true
       @store_git_metadata = true
       @enabled = true
+      @dismiss_old_threshold = 6.months
     end
 
     def enabled?

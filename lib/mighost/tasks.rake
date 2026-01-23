@@ -30,6 +30,7 @@ namespace :mighost do
         VERSION=..b      All versions up to b
         VERSION=a..      All versions from a onwards
         FORCE=1          Skip confirmations
+        OLD=1            Dismiss only old unrecoverable migrations (dismiss)
         SHOW_DISMISSED=1 Include dismissed in status
         LIMIT=N          Limit output rows (list)
         DEBUG=1          Verbose output (status)
@@ -244,12 +245,23 @@ namespace :mighost do
     Mighost::UI.success "Cleaned up #{stale_versions.count} record(s)."
   end
 
-  desc "Dismiss orphaned migrations (hide from status). VERSION=x, VERSION=a..b (range)"
+  desc "Dismiss orphaned migrations (hide from status). VERSION=x, VERSION=a..b (range), OLD=1"
   task dismiss: :environment do
     version_param = ENV["VERSION"]
+    old_only = ENV["OLD"] == "1"
 
     # Get non-dismissed orphans
     orphans = Mighost::OrphanDetector.detect(include_dismissed: false)
+
+    # Filter to old unrecoverable migrations if OLD=1
+    if old_only
+      orphans = orphans.select(&:suggested_for_dismiss?)
+      if orphans.empty?
+        Mighost::UI.info "No old unrecoverable migrations to dismiss."
+        Mighost::UI.hint "Migrations must be older than 6 months and not recoverable."
+        next
+      end
+    end
 
     if orphans.empty?
       Mighost::UI.info "No orphaned migrations to dismiss."

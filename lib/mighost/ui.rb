@@ -16,44 +16,97 @@ module Mighost
           return
         end
 
+        # Partition into actionable and suggested for dismissal
+        actionable, suggested = orphans.partition(&:actionable?)
+
         recoverable_count = orphans.count(&:recoverable?)
-        puts "\n#{pastel.cyan("Orphaned Migrations")} (#{orphans.count} total, #{recoverable_count} recoverable):\n\n"
+        suggested_count = suggested.count
+
+        # Header with counts
+        header_parts = ["#{orphans.count} total", "#{recoverable_count} recoverable"]
+        header_parts << "#{suggested_count} suggested to dismiss" if suggested_count.positive?
+        puts "\n#{pastel.cyan("Orphaned Migrations")} (#{header_parts.join(", ")}):\n\n"
 
         header = [
           pastel.cyan("Version"),
           pastel.cyan("Branch"),
           pastel.cyan("SHA"),
           pastel.cyan("Recovery"),
-          pastel.cyan("Name")
+          pastel.cyan("Name"),
+          pastel.cyan("Age")
         ]
 
-        rows = orphans.map do |orphan|
-          version = format_version(orphan.version)
-          name = format_name(orphan.filename)
-          recovery = format_recovery(orphan.recovery_source)
-          branch = truncate(orphan.branch_name || "-", 30)
-          sha = orphan.git_sha || "-"
+        # Build all rows
+        rows = []
+        actionable.each { |o| rows << build_orphan_row(o, dim: false) }
+        suggested.each { |o| rows << build_orphan_row(o, dim: true) }
 
-          if orphan.recoverable?
-            [version, branch, sha, recovery, name]
-          else
-            [
-              pastel.dim(version),
-              pastel.dim(branch),
-              pastel.dim(sha),
-              recovery,
-              pastel.dim(name)
-            ]
-          end
-        end
-
+        # Render single table
         table = TTY::Table.new(header: header, rows: rows)
-        puts table.render(:unicode, padding: [0, 1], resize: true) { |renderer|
+        table_output = table.render(:unicode, padding: [0, 1], resize: true) { |renderer|
           renderer.border.style = :dim
           renderer.width = terminal_width
         }
 
-        puts "\n#{pastel.cyan("Tip:")} Run 'rails mighost:rollback' to rollback recoverable migrations."
+        # If we have both sections, insert a separator line after actionable rows
+        if actionable.any? && suggested.any?
+          lines = table_output.split("\n")
+          # Find where to insert: top border (1) + header row (1) + header separator (1) + actionable rows
+          insert_after = 3 + actionable.count
+          # Get visual width from first line (strip ANSI codes)
+          first_line = lines.first || ""
+          visual_width = first_line.gsub(/\e\[[0-9;]*m/, "").length
+          # Build separator that matches table width
+          label = " Suggested to Dismiss (#{suggested.count} old, unrecoverable) "
+          padding_needed = visual_width - 2 - label.length  # -2 for ├ and ┤
+          left_pad = 2
+          right_pad = [padding_needed - left_pad, 0].max
+          separator_line = "├#{"─" * left_pad}#{label}#{"─" * right_pad}┤"
+          lines.insert(insert_after, pastel.dim(separator_line))
+          puts lines.join("\n")
+        else
+          puts table_output
+        end
+
+        # Show tips
+        if suggested_count.positive?
+          puts "\n#{pastel.cyan("Tip:")} Run 'rails mighost:dismiss OLD=1' to bulk-dismiss the #{suggested_count} old migrations."
+        end
+
+        if recoverable_count.positive?
+          puts "\n#{pastel.cyan("Tip:")} Run 'rails mighost:rollback' to rollback recoverable migrations."
+        end
+      end
+
+      def build_orphan_row(orphan, dim: false)
+        version = format_version(orphan.version)
+        name = format_name(orphan.filename)
+        recovery = format_recovery(orphan.recovery_source)
+        branch = truncate(orphan.branch_name || "-", 30)
+        sha = orphan.git_sha || "-"
+        age = format_age(orphan.created_at)
+
+        if orphan.recoverable?
+          [version, branch, sha, recovery, name, age]
+        elsif dim
+          [
+            pastel.dim(version),
+            pastel.dim(branch),
+            pastel.dim(sha),
+            recovery,
+            pastel.dim(name),
+            pastel.dim(age)
+          ]
+        else
+          [
+            pastel.dim(version),
+            pastel.dim(branch),
+            pastel.dim(sha),
+            recovery,
+            pastel.dim(name),
+            pastel.dim(age)
+          ]
+        end
       end
 
       def render_records_table(records, limit: nil, total_count: nil)
@@ -225,6 +278,32 @@ module Mighost
         return str if str.length <= max_length
 
         "#{str[0, max_length - 3]}..."
+      end
+
+      def format_age(created_at)
+        return "-" unless created_at
+
+        seconds = Time.now - created_at
+        return "-" if seconds < 0
+
+        days = (seconds / 86400).to_i
+        months = (days / 30.0).to_i
+        years = (days / 365.0).to_i
+
+        if years >= 1
+          remaining_months = ((days - years * 365) / 30.0).to_i
+          if remaining_months.positive?
+            "#{years}y #{remaining_months}mo"
+          else
+            "#{years}y"
+          end
+        elsif months >= 1
+          "#{months}mo"
+        elsif days >= 1
+          "#{days}d"
+        else
+          "<1d"
+        end
       end
 
       def terminal_width
