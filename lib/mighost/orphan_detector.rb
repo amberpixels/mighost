@@ -36,34 +36,25 @@ module Mighost
       # Detect orphaned migrations using cached snapshot data only (instant)
       # @param include_dismissed [Boolean] whether to include dismissed migrations (default: false)
       def detect(include_dismissed: false)
-        orphaned = []
+        # Load everything upfront for performance
         versions = migrated_versions
-        dismissed_versions = Snapshot.dismissed_versions
+        file_versions = migration_file_versions
+        dismissed_set = Snapshot.dismissed_versions.to_set
+        snapshots_by_version = Snapshot.all_metadata.index_by(&:version)
 
-        log "Found #{versions.count} migrated versions, checking for orphans..."
+        log "Found #{versions.count} migrated versions, #{file_versions.count} files on disk"
 
-        versions.each_with_index do |version, idx|
-          if migration_file_exists?(version)
-            log "  [#{idx + 1}/#{versions.count}] #{version} - file exists, skipping"
-            next
-          end
+        orphaned = []
+        versions.each do |version|
+          # Skip if file exists on disk
+          next if file_versions.include?(version)
 
-          is_dismissed = dismissed_versions.include?(version)
-          unless include_dismissed
-            if is_dismissed
-              log "  [#{idx + 1}/#{versions.count}] #{version} - dismissed, skipping"
-              next
-            end
-          end
+          # Skip dismissed unless requested
+          is_dismissed = dismissed_set.include?(version)
+          next if is_dismissed && !include_dismissed
 
-          log "  [#{idx + 1}/#{versions.count}] #{version} - orphaned, checking snapshot..."
-          snapshot = Snapshot.find_by_version(version)
-
-          if snapshot
-            log "    Found snapshot: #{snapshot.filename} (source: #{snapshot.source})"
-          else
-            log "    No snapshot found"
-          end
+          snapshot = snapshots_by_version[version]
+          log "  #{version} - orphaned#{snapshot ? ", has snapshot (#{snapshot.source})" : ""}"
 
           orphaned << OrphanedMigration.new(
             version: version,
@@ -120,10 +111,16 @@ module Mighost
         ActiveRecord::Base.connection.quote_table_name("schema_migrations")
       end
 
-      def migration_file_exists?(version)
-        migration_paths.any? do |path|
-          Dir.glob(File.join(path, "#{version}_*.rb")).any?
+      # Load all migration file versions at once (single glob per path)
+      def migration_file_versions
+        versions = Set.new
+        migration_paths.each do |path|
+          Dir.glob(File.join(path, "*.rb")).each do |file|
+            version = File.basename(file).split("_").first
+            versions << version
+          end
         end
+        versions
       end
 
       def migration_paths

@@ -142,6 +142,16 @@ module Mighost
         end
       end
 
+      # Lightweight version - only metadata, no content (for status display)
+      def all_metadata
+        ensure_table_exists!
+        if Mighost.configuration.stealth_mode?
+          stealth_all_metadata
+        else
+          ar_all_metadata
+        end
+      end
+
       def all_versions
         ensure_table_exists!
         if Mighost.configuration.stealth_mode?
@@ -253,6 +263,18 @@ module Mighost
         cols = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at]
         stealth_db.execute(
           "SELECT * FROM #{table_name} WHERE version != ? ORDER BY migrated_at DESC",
+          [SCAN_METADATA_VERSION]
+        ).map do |row|
+          record = new(cols.zip(row).to_h)
+          record.dismissed = record.dismissed == 1
+          record
+        end
+      end
+
+      def stealth_all_metadata
+        cols = %i[version filename branch_name git_sha migrated_at source dismissed]
+        stealth_db.execute(
+          "SELECT version, filename, branch_name, git_sha, migrated_at, source, dismissed FROM #{table_name} WHERE version != ?",
           [SCAN_METADATA_VERSION]
         ).map do |row|
           record = new(cols.zip(row).to_h)
@@ -392,6 +414,14 @@ module Mighost
         conn = ar_connection
         results = conn.select_all(
           "SELECT * FROM #{table_name} WHERE version != #{conn.quote(SCAN_METADATA_VERSION)} ORDER BY migrated_at DESC"
+        )
+        results.map { |row| new(symbolize_keys(row)) }
+      end
+
+      def ar_all_metadata
+        conn = ar_connection
+        results = conn.select_all(
+          "SELECT version, filename, branch_name, git_sha, migrated_at, source, dismissed FROM #{table_name} WHERE version != #{conn.quote(SCAN_METADATA_VERSION)}"
         )
         results.map { |row| new(symbolize_keys(row)) }
       end
