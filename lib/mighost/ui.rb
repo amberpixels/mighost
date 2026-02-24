@@ -1,13 +1,30 @@
 # frozen_string_literal: true
 
-require "tty-table"
-require "pastel"
+require "terminal-table"
 
 module Mighost
   module UI
+    # Minimal ANSI color helpers (replaces Pastel gem)
+    module Color
+      CODES = { red: 31, green: 32, yellow: 33, cyan: 36, dim: 2 }.freeze
+
+      class << self
+        def enabled?
+          @enabled = $stdout.tty? if @enabled.nil?
+          @enabled
+        end
+
+        CODES.each do |name, code|
+          define_method(name) do |text|
+            enabled? ? "\e[#{code}m#{text}\e[0m" : text.to_s
+          end
+        end
+      end
+    end
+
     class << self
-      def pastel
-        @pastel ||= Pastel.new(enabled: $stdout.tty?)
+      def color
+        Color
       end
 
       def render_orphans_table(orphans)
@@ -25,56 +42,33 @@ module Mighost
         # Header with counts
         header_parts = ["#{orphans.count} total", "#{recoverable_count} recoverable"]
         header_parts << "#{suggested_count} suggested to dismiss" if suggested_count.positive?
-        puts "\n#{pastel.cyan("Orphaned Migrations")} (#{header_parts.join(", ")}):\n\n"
+        puts "\n#{color.cyan("Orphaned Migrations")} (#{header_parts.join(", ")}):\n\n"
 
-        header = [
-          pastel.cyan("Version"),
-          pastel.cyan("Branch"),
-          pastel.cyan("SHA"),
-          pastel.cyan("Recovery"),
-          pastel.cyan("Name"),
-          pastel.cyan("Age")
-        ]
+        headings = %w[Version Branch SHA Recovery Name Age].map { |h| color.cyan(h) }
 
         # Build all rows
         rows = []
         actionable.each { |o| rows << build_orphan_row(o, dim: false) }
+
+        if actionable.any? && suggested.any?
+          rows << :separator
+          rows << [{ value: color.dim(" Suggested to Dismiss (#{suggested.count} old, unrecoverable)"), colspan: 6 }]
+          rows << :separator
+        end
+
         suggested.each { |o| rows << build_orphan_row(o, dim: true) }
 
-        # Render single table
-        table = TTY::Table.new(header: header, rows: rows)
-        table_output = table.render(:unicode, padding: [0, 1], resize: true) { |renderer|
-          renderer.border.style = :dim
-          renderer.width = terminal_width
-        }
+        table = Terminal::Table.new(headings: headings, rows: rows, style: { border: :unicode })
 
-        # If we have both sections, insert a separator line after actionable rows
-        if actionable.any? && suggested.any?
-          lines = table_output.split("\n")
-          # Find where to insert: top border (1) + header row (1) + header separator (1) + actionable rows
-          insert_after = 3 + actionable.count
-          # Get visual width from first line (strip ANSI codes)
-          first_line = lines.first || ""
-          visual_width = first_line.gsub(/\e\[[0-9;]*m/, "").length
-          # Build separator that matches table width
-          label = " Suggested to Dismiss (#{suggested.count} old, unrecoverable) "
-          padding_needed = visual_width - 2 - label.length  # -2 for ├ and ┤
-          left_pad = 2
-          right_pad = [padding_needed - left_pad, 0].max
-          separator_line = "├#{"─" * left_pad}#{label}#{"─" * right_pad}┤"
-          lines.insert(insert_after, pastel.dim(separator_line))
-          puts lines.join("\n")
-        else
-          puts table_output
-        end
+        puts table
 
         # Show tips
         if suggested_count.positive?
-          puts "\n#{pastel.cyan("Tip:")} Run 'rails mighost:dismiss OLD=1' to bulk-dismiss the #{suggested_count} old migrations."
+          puts "\n#{color.cyan("Tip:")} Run 'rails mighost:dismiss OLD=1' to bulk-dismiss the #{suggested_count} old migrations."
         end
 
         if recoverable_count.positive?
-          puts "\n#{pastel.cyan("Tip:")} Run 'rails mighost:rollback' to rollback recoverable migrations."
+          puts "\n#{color.cyan("Tip:")} Run 'rails mighost:rollback' to rollback recoverable migrations."
         end
       end
 
@@ -88,23 +82,14 @@ module Mighost
 
         if orphan.recoverable?
           [version, branch, sha, recovery, name, age]
-        elsif dim
-          [
-            pastel.dim(version),
-            pastel.dim(branch),
-            pastel.dim(sha),
-            recovery,
-            pastel.dim(name),
-            pastel.dim(age)
-          ]
         else
           [
-            pastel.dim(version),
-            pastel.dim(branch),
-            pastel.dim(sha),
+            color.dim(version),
+            color.dim(branch),
+            color.dim(sha),
             recovery,
-            pastel.dim(name),
-            pastel.dim(age)
+            color.dim(name),
+            color.dim(age)
           ]
         end
       end
@@ -121,13 +106,7 @@ module Mighost
                        records.count.to_s
                      end
 
-        header = [
-          pastel.cyan("Version"),
-          pastel.cyan("Branch"),
-          pastel.cyan("SHA"),
-          pastel.cyan("Captured"),
-          pastel.cyan("Name")
-        ]
+        headings = %w[Version Branch SHA Captured Name].map { |h| color.cyan(h) }
 
         rows = records.map do |record|
           version = format_version(record.version)
@@ -139,46 +118,43 @@ module Mighost
           [version, branch, sha, captured, name]
         end
 
-        table = TTY::Table.new(header: header, rows: rows)
+        table = Terminal::Table.new(headings: headings, rows: rows, style: { border: :unicode })
 
         output = []
-        output << "\n#{pastel.cyan("Migration Records")} (#{count_text}):\n\n"
-        output << table.render(:unicode, padding: [0, 1], resize: true) { |renderer|
-          renderer.border.style = :dim
-          renderer.width = terminal_width
-        }
+        output << "\n#{color.cyan("Migration Records")} (#{count_text}):\n\n"
+        output << table.to_s
 
         # Use pager if output is large and stdout is a TTY
         if $stdout.tty? && records.size > 30 && !limit
           pager = ENV["PAGER"] || "less -R"
-          IO.popen(pager, "w") { |io| io.puts output.join }
+          IO.popen(pager, "w") { |io| io.puts output.join("\n") }
         else
-          puts output.join
+          puts output.join("\n")
         end
       end
 
       def render_recoverable_list(orphans)
-        puts "\n#{pastel.cyan("Recoverable orphaned migrations:")}"
+        puts "\n#{color.cyan("Recoverable orphaned migrations:")}"
         orphans.each do |orphan|
           name = orphan.filename || "(unknown)"
-          puts "  #{pastel.dim(orphan.version)} - #{name}"
+          puts "  #{color.dim(orphan.version)} - #{name}"
         end
       end
 
       def render_rollback_results(results)
         if results[:rolled_back].any?
           success "\nSuccessfully rolled back:"
-          results[:rolled_back].each { |v| puts "  #{pastel.green(v)}" }
+          results[:rolled_back].each { |v| puts "  #{color.green(v)}" }
         end
 
         if results[:failed].any?
           error "\nFailed to rollback:"
-          results[:failed].each { |f| puts "  #{pastel.red(f[:version])}: #{f[:error]}" }
+          results[:failed].each { |f| puts "  #{color.red(f[:version])}: #{f[:error]}" }
         end
       end
 
       def confirm?(prompt)
-        print "\n#{pastel.yellow(prompt)} [y/N] "
+        print "\n#{color.yellow(prompt)} [y/N] "
         response = $stdin.gets.chomp.downcase
         response == "y"
       end
@@ -190,8 +166,8 @@ module Mighost
         version = format_version(orphan.version)
         recovery = format_recovery(orphan.recovery_source)
 
-        print "\nRollback #{pastel.cyan(version)} #{name} [#{recovery}]? "
-        print "[#{pastel.green("y")}es/#{pastel.red("n")}o/#{pastel.green("a")}ll/#{pastel.red("q")}uit] "
+        print "\nRollback #{color.cyan(version)} #{name} [#{recovery}]? "
+        print "[#{color.green("y")}es/#{color.red("n")}o/#{color.green("a")}ll/#{color.red("q")}uit] "
 
         response = $stdin.gets.chomp.downcase
         case response
@@ -208,8 +184,8 @@ module Mighost
       def confirm_dismiss?(version, name)
         formatted_version = format_version(version)
 
-        print "\nDismiss #{pastel.cyan(formatted_version)} #{name}? "
-        print "[#{pastel.green("y")}es/#{pastel.red("n")}o/#{pastel.green("a")}ll/#{pastel.red("q")}uit] "
+        print "\nDismiss #{color.cyan(formatted_version)} #{name}? "
+        print "[#{color.green("y")}es/#{color.red("n")}o/#{color.green("a")}ll/#{color.red("q")}uit] "
 
         response = $stdin.gets.chomp.downcase
         case response
@@ -222,23 +198,23 @@ module Mighost
       end
 
       def success(msg)
-        puts pastel.green(msg)
+        puts color.green(msg)
       end
 
       def error(msg)
-        puts pastel.red(msg)
+        puts color.red(msg)
       end
 
       def warning(msg)
-        puts pastel.yellow(msg)
+        puts color.yellow(msg)
       end
 
       def info(msg)
-        puts pastel.cyan(msg)
+        puts color.cyan(msg)
       end
 
       def hint(msg)
-        puts pastel.dim("Hint: #{msg}")
+        puts color.dim("Hint: #{msg}")
       end
 
       def format_version(version)
@@ -260,9 +236,9 @@ module Mighost
 
       def format_recovery(source)
         case source
-        when :snapshot then pastel.green("snapshot")
-        when :git then pastel.yellow("git")
-        else pastel.dim("-")
+        when :snapshot then color.green("snapshot")
+        when :git then color.yellow("git")
+        else color.dim("-")
         end
       end
 
@@ -304,17 +280,6 @@ module Mighost
         else
           "<1d"
         end
-      end
-
-      def terminal_width
-        max_width = 120
-        return max_width unless $stdout.tty?
-
-        require "io/console"
-        actual = IO.console&.winsize&.last || max_width
-        [actual, max_width].min
-      rescue LoadError
-        max_width
       end
     end
   end

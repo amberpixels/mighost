@@ -12,9 +12,9 @@ namespace :mighost do
   desc "Show available commands"
   task :help do
     puts <<~HELP
-      #{Mighost::UI.pastel.cyan("Mighost")} - Rollback Rails migrations even when the file is missing
+      #{Mighost::UI.color.cyan("Mighost")} - Rollback Rails migrations even when the file is missing
 
-      #{Mighost::UI.pastel.cyan("Commands:")}
+      #{Mighost::UI.color.cyan("Commands:")}
         rails mighost:status              Show orphaned migrations (in DB but no file)
         rails mighost:rollback            Rollback orphaned migrations (interactive)
         rails mighost:scan                Capture migrations + search git for orphans
@@ -24,7 +24,7 @@ namespace :mighost do
         rails mighost:dismissed           List dismissed migrations
         rails mighost:cleanup             Remove stale records
 
-      #{Mighost::UI.pastel.cyan("Options:")}
+      #{Mighost::UI.color.cyan("Options:")}
         VERSION=x        Target specific version (rollback, dismiss, undismiss)
         VERSION=a..b     Version range: a to b inclusive
         VERSION=..b      All versions up to b
@@ -35,7 +35,7 @@ namespace :mighost do
         LIMIT=N          Limit output rows (list)
         DEBUG=1          Verbose output (status)
 
-      #{Mighost::UI.pastel.cyan("Typical workflow:")}
+      #{Mighost::UI.color.cyan("Typical workflow:")}
         1. rails mighost:scan       # First time setup
         2. rails mighost:status     # Check for orphaned migrations
         3. rails mighost:rollback   # Rollback interactively
@@ -285,7 +285,7 @@ namespace :mighost do
     orphan_map = orphans.index_by(&:version)
 
     # Show preview list
-    puts "\n#{Mighost::UI.pastel.cyan("Found #{to_dismiss.count} orphaned migration(s) to dismiss:")}\n"
+    puts "\n#{Mighost::UI.color.cyan("Found #{to_dismiss.count} orphaned migration(s) to dismiss:")}\n"
     preview_count = 10
     to_dismiss.first(preview_count).each do |v|
       puts "  #{v}  (#{Mighost::UI.format_version(v)})"
@@ -316,10 +316,10 @@ namespace :mighost do
         when :all
           # Show all remaining and confirm
           remaining = to_dismiss[to_dismiss.index(version)..]
-          puts "\n#{Mighost::UI.pastel.cyan("Dismissing all remaining:")}"
+          puts "\n#{Mighost::UI.color.cyan("Dismissing all remaining:")}"
           remaining.each do |v|
             o = orphan_map[v]
-            puts "  #{Mighost::UI.pastel.dim(v)} - #{o&.filename || '(unknown)'}"
+            puts "  #{Mighost::UI.color.dim(v)} - #{o&.filename || '(unknown)'}"
           end
 
           if Mighost::UI.confirm?("Confirm dismiss all #{remaining.count}?")
@@ -385,17 +385,17 @@ namespace :mighost do
       next
     end
 
-    puts "\n#{Mighost::UI.pastel.cyan("Dismissed migrations")} (#{dismissed.count}):\n\n"
+    puts "\n#{Mighost::UI.color.cyan("Dismissed migrations")} (#{dismissed.count}):\n\n"
 
     dismissed.each do |version|
       snapshot = Mighost::Snapshot.find_by_version(version)
       name = snapshot&.filename.presence || "(unknown)"
       dismissed_at = snapshot&.dismissed_at
       date_str = dismissed_at ? " (dismissed #{dismissed_at[0, 10]})" : ""
-      puts "  #{Mighost::UI.pastel.dim(version)} - #{name}#{date_str}"
+      puts "  #{Mighost::UI.color.dim(version)} - #{name}#{date_str}"
     end
 
-    puts "\n#{Mighost::UI.pastel.cyan("Tip:")} Use 'rails mighost:undismiss VERSION=x' to restore."
+    puts "\n#{Mighost::UI.color.cyan("Tip:")} Use 'rails mighost:undismiss VERSION=x' to restore."
   end
 
   # Helper to parse version range parameter

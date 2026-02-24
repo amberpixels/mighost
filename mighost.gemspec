@@ -29,6 +29,6 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "activerecord", ">= 6.1", "< 8.1"
   spec.add_dependency "railties", ">= 6.1", "< 8.1"
-  spec.add_dependency "tty-table", "~> 0.12"
-  spec.add_dependency "pastel", "~> 0.8"
+  spec.add_dependency "terminal-table", ">= 3.0", "< 5"
+  spec.add_dependency "sqlite3"
 end
