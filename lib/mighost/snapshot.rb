@@ -5,7 +5,7 @@ require "active_record"
 module Mighost
   class Snapshot
     attr_accessor :id, :version, :content, :filename, :branch_name, :git_sha, :content_hash, :migrated_at, :source,
-                  :dismissed, :dismissed_at
+                  :dismissed, :dismissed_at, :author_name, :author_email
 
     # Special version used to store scan metadata
     SCAN_METADATA_VERSION = "__scan_metadata__"
@@ -36,14 +36,36 @@ module Mighost
         end
       end
 
-      def store(version:, content:, filename:, branch_name: nil, git_sha: nil, source: "file")
+      def find_or_recover(version)
+        existing = find_by_version(version)
+        return existing if existing
+
+        require_relative "git_recovery"
+        git_data = GitRecovery.find_migration(version)
+        return nil unless git_data
+
+        store(
+          version: version,
+          content: git_data[:content],
+          filename: git_data[:filename],
+          branch_name: git_data[:branch],
+          git_sha: git_data[:sha],
+          source: "git",
+          author_name: git_data[:author_name],
+          author_email: git_data[:author_email]
+        )
+      end
+
+      def store(version:, content:, filename:, branch_name: nil, git_sha: nil, source: "file", author_name: nil, author_email: nil)
         ensure_table_exists!
         if Mighost.configuration.stealth_mode?
           stealth_store(version: version, content: content, filename: filename,
-                        branch_name: branch_name, git_sha: git_sha, source: source)
+                        branch_name: branch_name, git_sha: git_sha, source: source,
+                        author_name: author_name, author_email: author_email)
         else
           ar_store(version: version, content: content, filename: filename,
-                   branch_name: branch_name, git_sha: git_sha, source: source)
+                   branch_name: branch_name, git_sha: git_sha, source: source,
+                   author_name: author_name, author_email: author_email)
         end
       end
 
@@ -185,7 +207,9 @@ module Mighost
             migrated_at TEXT NOT NULL,
             source TEXT DEFAULT 'file',
             dismissed INTEGER DEFAULT 0,
-            dismissed_at TEXT
+            dismissed_at TEXT,
+            author_name TEXT,
+            author_email TEXT
           )
         SQL
         stealth_db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_#{table_name}_version ON #{table_name}(version)")
@@ -204,6 +228,12 @@ module Mighost
         unless columns.include?("dismissed_at")
           stealth_db.execute("ALTER TABLE #{table_name} ADD COLUMN dismissed_at TEXT")
         end
+        unless columns.include?("author_name")
+          stealth_db.execute("ALTER TABLE #{table_name} ADD COLUMN author_name TEXT")
+        end
+        unless columns.include?("author_email")
+          stealth_db.execute("ALTER TABLE #{table_name} ADD COLUMN author_email TEXT")
+        end
       end
 
       def stealth_find_by_version(version)
@@ -213,7 +243,7 @@ module Mighost
         )
         return nil unless row
 
-        cols = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at]
+        cols = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at author_name author_email]
         record = new(cols.zip(row).to_h)
         record.dismissed = record.dismissed == 1 # SQLite stores as integer
         record
@@ -234,21 +264,22 @@ module Mighost
         ).flatten
       end
 
-      def stealth_store(version:, content:, filename:, branch_name:, git_sha:, source:)
+      def stealth_store(version:, content:, filename:, branch_name:, git_sha:, source:, author_name:, author_email:)
         content_hash = Digest::SHA256.hexdigest(content)
         migrated_at = Time.current.iso8601
 
         existing = stealth_find_by_version(version)
         if existing
-          stealth_db.execute(<<~SQL, [content, filename, branch_name, git_sha, content_hash, migrated_at, source, version.to_s])
+          stealth_db.execute(<<~SQL, [content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email, version.to_s])
             UPDATE #{table_name}
-            SET content = ?, filename = ?, branch_name = ?, git_sha = ?, content_hash = ?, migrated_at = ?, source = ?
+            SET content = ?, filename = ?, branch_name = ?, git_sha = ?, content_hash = ?, migrated_at = ?, source = ?,
+                author_name = ?, author_email = ?
             WHERE version = ?
           SQL
         else
-          stealth_db.execute(<<~SQL, [version.to_s, content, filename, branch_name, git_sha, content_hash, migrated_at, source])
-            INSERT INTO #{table_name} (version, content, filename, branch_name, git_sha, content_hash, migrated_at, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          stealth_db.execute(<<~SQL, [version.to_s, content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email])
+            INSERT INTO #{table_name} (version, content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           SQL
         end
 
@@ -260,7 +291,7 @@ module Mighost
       end
 
       def stealth_all_snapshots
-        cols = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at]
+        cols = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at author_name author_email]
         stealth_db.execute(
           "SELECT * FROM #{table_name} WHERE version != ? ORDER BY migrated_at DESC",
           [SCAN_METADATA_VERSION]
@@ -272,9 +303,9 @@ module Mighost
       end
 
       def stealth_all_metadata
-        cols = %i[version filename branch_name git_sha migrated_at source dismissed]
+        cols = %i[version filename branch_name git_sha migrated_at source dismissed author_name author_email]
         stealth_db.execute(
-          "SELECT version, filename, branch_name, git_sha, migrated_at, source, dismissed FROM #{table_name} WHERE version != ?",
+          "SELECT version, filename, branch_name, git_sha, migrated_at, source, dismissed, author_name, author_email FROM #{table_name} WHERE version != ?",
           [SCAN_METADATA_VERSION]
         ).map do |row|
           record = new(cols.zip(row).to_h)
@@ -324,6 +355,8 @@ module Mighost
           t.string :source, default: "file"
           t.boolean :dismissed, default: false
           t.datetime :dismissed_at
+          t.string :author_name
+          t.string :author_email
 
           t.index :version, unique: true
         end
@@ -339,6 +372,12 @@ module Mighost
         end
         unless conn.column_exists?(table_name, :dismissed_at)
           conn.add_column table_name, :dismissed_at, :datetime
+        end
+        unless conn.column_exists?(table_name, :author_name)
+          conn.add_column table_name, :author_name, :string
+        end
+        unless conn.column_exists?(table_name, :author_email)
+          conn.add_column table_name, :author_email, :string
         end
       end
 
@@ -368,7 +407,7 @@ module Mighost
         result ? new(symbolize_keys(result)) : nil
       end
 
-      def ar_store(version:, content:, filename:, branch_name:, git_sha:, source:)
+      def ar_store(version:, content:, filename:, branch_name:, git_sha:, source:, author_name:, author_email:)
         conn = ar_connection
         content_hash = Digest::SHA256.hexdigest(content)
         migrated_at = Time.current
@@ -383,12 +422,14 @@ module Mighost
                 git_sha = #{conn.quote(git_sha)},
                 content_hash = #{conn.quote(content_hash)},
                 migrated_at = #{conn.quote(migrated_at.iso8601)},
-                source = #{conn.quote(source)}
+                source = #{conn.quote(source)},
+                author_name = #{conn.quote(author_name)},
+                author_email = #{conn.quote(author_email)}
             WHERE version = #{conn.quote(version.to_s)}
           SQL
         else
           conn.execute(<<~SQL)
-            INSERT INTO #{table_name} (version, content, filename, branch_name, git_sha, content_hash, migrated_at, source)
+            INSERT INTO #{table_name} (version, content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email)
             VALUES (
               #{conn.quote(version.to_s)},
               #{conn.quote(content)},
@@ -397,7 +438,9 @@ module Mighost
               #{conn.quote(git_sha)},
               #{conn.quote(content_hash)},
               #{conn.quote(migrated_at.iso8601)},
-              #{conn.quote(source)}
+              #{conn.quote(source)},
+              #{conn.quote(author_name)},
+              #{conn.quote(author_email)}
             )
           SQL
         end
@@ -420,8 +463,9 @@ module Mighost
 
       def ar_all_metadata
         conn = ar_connection
+        cols = "version, filename, branch_name, git_sha, migrated_at, source, dismissed, author_name, author_email"
         results = conn.select_all(
-          "SELECT version, filename, branch_name, git_sha, migrated_at, source, dismissed FROM #{table_name} WHERE version != #{conn.quote(SCAN_METADATA_VERSION)}"
+          "SELECT #{cols} FROM #{table_name} WHERE version != #{conn.quote(SCAN_METADATA_VERSION)}"
         )
         results.map { |row| new(symbolize_keys(row)) }
       end

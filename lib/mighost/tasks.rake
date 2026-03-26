@@ -29,6 +29,7 @@ namespace :mighost do
         VERSION=a..b     Version range: a to b inclusive
         VERSION=..b      All versions up to b
         VERSION=a..      All versions from a onwards
+        RESCAN=1         Force re-capture all snapshots (scan)
         FORCE=1          Skip confirmations
         OLD=1            Dismiss only old unrecoverable migrations (dismiss)
         SHOW_DISMISSED=1 Include dismissed in status
@@ -132,8 +133,9 @@ namespace :mighost do
     Mighost::UI.info "Done: #{results[:rolled_back].size} rolled back, #{results[:skipped].size} skipped, #{results[:failed].size} failed"
   end
 
-  desc "Scan and capture existing migrations, search git for orphans"
+  desc "Scan and capture existing migrations, search git for orphans. RESCAN=1 to force re-capture all"
   task scan: :environment do
+    rescan = ENV["RESCAN"] == "1"
     migration_paths = Rails.application.config.paths["db/migrate"].to_ary
     migrated_versions = Mighost::Base.connection
                                           .select_values("SELECT version FROM schema_migrations")
@@ -149,7 +151,7 @@ namespace :mighost do
         version = basename.split("_").first
 
         next unless migrated_versions.include?(version)
-        next if Mighost::Snapshot.find_by_version(version)
+        next if !rescan && Mighost::Snapshot.find_by_version(version)
 
         Mighost::Capturer.new(version, file).capture
         Mighost::UI.info "Captured: #{basename}"
@@ -168,7 +170,7 @@ namespace :mighost do
     orphan_versions.each do |version|
       # Check if we already have a snapshot with recovery info
       existing = Mighost::Snapshot.find_by_version(version)
-      next if existing&.source.present?
+      next if !rescan && existing&.source.present?
 
       # Search git history
       git_data = Mighost::GitRecovery.find_migration(version)
@@ -180,7 +182,9 @@ namespace :mighost do
         filename: git_data[:filename],
         branch_name: git_data[:branch],
         git_sha: git_data[:sha],
-        source: "git"
+        source: "git",
+        author_name: git_data[:author_name],
+        author_email: git_data[:author_email]
       )
       Mighost::UI.info "Git recovered: #{git_data[:filename]} (from #{git_data[:branch]})"
       git_recovered += 1

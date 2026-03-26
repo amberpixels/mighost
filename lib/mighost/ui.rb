@@ -44,7 +44,7 @@ module Mighost
         header_parts << "#{suggested_count} suggested to dismiss" if suggested_count.positive?
         puts "\n#{color.cyan("Orphaned Migrations")} (#{header_parts.join(", ")}):\n\n"
 
-        headings = %w[Version Branch SHA Recovery Name Age].map { |h| color.cyan(h) }
+        headings = %w[Version Branch SHA Recovery Name Author Age].map { |h| color.cyan(h) }
 
         # Build all rows
         rows = []
@@ -52,7 +52,7 @@ module Mighost
 
         if actionable.any? && suggested.any?
           rows << :separator
-          rows << [{ value: color.dim(" Suggested to Dismiss (#{suggested.count} old, unrecoverable)"), colspan: 6 }]
+          rows << [{ value: color.dim(" Suggested to Dismiss (#{suggested.count} old, unrecoverable)"), colspan: 7 }]
           rows << :separator
         end
 
@@ -78,10 +78,11 @@ module Mighost
         recovery = format_recovery(orphan.recovery_source)
         branch = truncate(orphan.branch_name || "-", 30)
         sha = orphan.git_sha || "-"
+        author = truncate(orphan.author_name || "-", 20)
         age = format_age(orphan.created_at)
 
         if orphan.recoverable?
-          [version, branch, sha, recovery, name, age]
+          [version, branch, sha, recovery, name, author, age]
         else
           [
             color.dim(version),
@@ -89,6 +90,7 @@ module Mighost
             color.dim(sha),
             recovery,
             color.dim(name),
+            color.dim(author),
             color.dim(age)
           ]
         end
@@ -106,7 +108,7 @@ module Mighost
                        records.count.to_s
                      end
 
-        headings = %w[Version Branch SHA Captured Name].map { |h| color.cyan(h) }
+        headings = %w[Version Branch SHA Captured Name Author].map { |h| color.cyan(h) }
 
         rows = records.map do |record|
           version = format_version(record.version)
@@ -114,8 +116,9 @@ module Mighost
           branch = truncate(record.branch_name || "-", 25)
           sha = record.git_sha || "-"
           captured = format_captured_at(record.migrated_at)
+          author = truncate(record.author_name || "-", 20)
 
-          [version, branch, sha, captured, name]
+          [version, branch, sha, captured, name, author]
         end
 
         table = Terminal::Table.new(headings: headings, rows: rows, style: { border: :unicode })

@@ -23,7 +23,9 @@ module Mighost
           filename: File.basename(result[:path]),
           branch: result[:branch],
           sha: result[:sha][0, 12],
-          commit_date: result[:date]
+          commit_date: result[:date],
+          author_name: result[:author_name],
+          author_email: result[:author_email]
         }
       end
 
@@ -39,15 +41,17 @@ module Mighost
         # Use git log --all to search across ALL refs in a single command
         # %D shows decorated refs (branches/tags pointing to commit)
         # --name-only includes the filename in output
-        output = `git log --all -1 --format='%H|%aI|%D' --name-only -- #{shell_escape(pattern)} 2>/dev/null`.strip
+        fmt = "%H\t%aI\t%D\t%aN\t%aE"
+        cmd = "git log --all -1 --format='#{fmt}' --name-only -- #{shell_escape(pattern)} 2>/dev/null"
+        output = `#{cmd}`.strip
         return nil if output.empty?
 
         lines = output.split("\n").map(&:strip).reject(&:empty?)
         return nil if lines.empty?
 
-        # First non-empty line: commit info (sha|date|decorated_refs)
+        # First non-empty line: commit info (sha\tdate\tdecorated_refs\tauthor_name\tauthor_email)
         commit_line = lines[0]
-        sha, date_str, decorated_refs = commit_line.split("|", 3)
+        sha, date_str, decorated_refs, author_name, author_email = commit_line.split("\t", 5)
         return nil unless sha && date_str
 
         # Second non-empty line: the file path
@@ -67,7 +71,9 @@ module Mighost
           sha: sha,
           path: file_path,
           branch: branch,
-          date: date
+          date: date,
+          author_name: author_name,
+          author_email: author_email
         }
       end
 
@@ -92,8 +98,8 @@ module Mighost
         output = `git branch -a --contains #{sha} 2>/dev/null`.strip
         return nil if output.empty?
 
-        # Parse output - each line is a branch name, current branch has * prefix
-        lines = output.split("\n").map { |l| l.sub(/^\*?\s*/, "").strip }
+        # Parse output - each line is a branch name, * = current branch, + = worktree-checked-out
+        lines = output.split("\n").map { |l| l.sub(/^[*+]?\s*/, "").strip }
         return nil if lines.empty?
 
         # Prefer local branches over remote, clean up names

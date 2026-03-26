@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "shellwords"
 require_relative "snapshot"
 require_relative "git_metadata"
 
@@ -29,12 +30,30 @@ module Mighost
       if Mighost.configuration.store_git_metadata
         attributes[:branch_name] = GitMetadata.current_branch
         attributes[:git_sha] = GitMetadata.current_sha
+
+        author_name, author_email = git_author_of(migration_path)
+        attributes[:author_name] = author_name
+        attributes[:author_email] = author_email
       end
 
       Snapshot.store(**attributes)
     rescue StandardError => e
       # Don't break migrations if snapshot capture fails
       warn "[Mighost] Failed to capture snapshot for #{version}: #{e.message}"
+    end
+
+    private
+
+    def git_author_of(filepath)
+      return [nil, nil] unless GitMetadata.git_available?
+
+      escaped = Shellwords.shellescape(filepath)
+      output = `git log --format='%aN\t%aE' --follow -1 -- #{escaped} 2>/dev/null`.strip
+      return [nil, nil] if output.empty?
+
+      output.split("\t", 2)
+    rescue StandardError
+      [nil, nil]
     end
   end
 end

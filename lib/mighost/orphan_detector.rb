@@ -6,9 +6,9 @@ require_relative "git_metadata"
 module Mighost
   class OrphanDetector
     class OrphanedMigration
-      attr_reader :version, :filename, :branch_name, :git_sha, :migrated_at, :source, :dismissed
+      attr_reader :version, :filename, :branch_name, :git_sha, :migrated_at, :source, :dismissed, :author_name, :author_email
 
-      def initialize(version:, filename: nil, branch_name: nil, git_sha: nil, migrated_at: nil, source: nil, dismissed: false)
+      def initialize(version:, filename: nil, branch_name: nil, git_sha: nil, migrated_at: nil, source: nil, dismissed: false, author_name: nil, author_email: nil)
         @version = version
         @filename = filename
         @branch_name = branch_name
@@ -16,6 +16,8 @@ module Mighost
         @migrated_at = migrated_at
         @source = source
         @dismissed = dismissed
+        @author_name = author_name
+        @author_email = author_email
       end
 
       def recoverable?
@@ -93,7 +95,9 @@ module Mighost
             git_sha: snapshot&.git_sha,
             migrated_at: snapshot&.migrated_at,
             source: snapshot&.source,
-            dismissed: is_dismissed
+            dismissed: is_dismissed,
+            author_name: snapshot&.author_name,
+            author_email: snapshot&.author_email
           )
         end
 
