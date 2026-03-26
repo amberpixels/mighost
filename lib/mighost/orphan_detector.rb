@@ -132,13 +132,13 @@ module Mighost
       end
 
       def migrated_versions
-        ActiveRecord::Base.connection
-                          .select_values("SELECT version FROM #{schema_migrations_table}")
-                          .map(&:to_s)
+        Mighost::Base.connection
+               .select_values("SELECT version FROM #{schema_migrations_table}")
+               .map(&:to_s)
       end
 
       def schema_migrations_table
-        ActiveRecord::Base.connection.quote_table_name("schema_migrations")
+        Mighost::Base.connection.quote_table_name("schema_migrations")
       end
 
       # Load all migration file versions at once (single glob per path)

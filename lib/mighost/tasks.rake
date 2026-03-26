@@ -135,7 +135,7 @@ namespace :mighost do
   desc "Scan and capture existing migrations, search git for orphans"
   task scan: :environment do
     migration_paths = Rails.application.config.paths["db/migrate"].to_ary
-    migrated_versions = ActiveRecord::Base.connection
+    migrated_versions = Mighost::Base.connection
                                           .select_values("SELECT version FROM schema_migrations")
                                           .map(&:to_s)
 
@@ -220,7 +220,7 @@ namespace :mighost do
   desc "Clean up stale records for migrations no longer in schema_migrations"
   task cleanup: :environment do
     Mighost::Snapshot.ensure_table_exists!
-    migrated_versions = ActiveRecord::Base.connection
+    migrated_versions = Mighost::Base.connection
                                           .select_values("SELECT version FROM schema_migrations")
                                           .map(&:to_s)
 

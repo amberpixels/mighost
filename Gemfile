@@ -10,6 +10,6 @@ group :development, :test do
   gem "rspec-rails", "~> 6.0"
   gem "rubocop", "~> 1.21"
   gem "rubocop-rails", "~> 2.0"
-  gem "sqlite3", "~> 1.4"
-  gem "rails", "~> 7.0"
+  gem "sqlite3"
+  gem "rails", "~> 8.1"
 end

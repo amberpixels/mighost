@@ -87,7 +87,7 @@ module Mighost
     end
 
     def extract_class_name
-      match = content.match(/class\s+(\w+)\s*<\s*ActiveRecord::Migration/)
+      match = content.match(/class\s+(\w+)\s*<\s*ActiveRecord::Migration(\[\d+\.\d+\])?/)
       match[1] if match
     end
 
@@ -99,8 +99,9 @@ module Mighost
     end
 
     def remove_from_schema_migrations
-      ActiveRecord::Base.connection.execute(
-        "DELETE FROM schema_migrations WHERE version = '#{version}'"
+      conn = Mighost::Base.connection
+      conn.execute(
+        "DELETE FROM schema_migrations WHERE version = #{conn.quote(version)}"
       )
     end
 

@@ -303,7 +303,7 @@ module Mighost
       # ========== Team Mode (ActiveRecord) ==========
 
       def ar_connection
-        ActiveRecord::Base.connection
+        Mighost::Base.connection
       end
 
       def ensure_ar_table_exists!
