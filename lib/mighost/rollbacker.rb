@@ -73,7 +73,7 @@ module Mighost
       migration_instance.migrate(:down)
     rescue ActiveRecord::IrreversibleMigration => e
       raise RollbackFailed, "Migration #{version} is irreversible: #{e.message}"
-    rescue StandardError => e
+    rescue => e
       raise RollbackFailed, "Failed to rollback #{version}: #{e.message}"
     end
 
@@ -109,9 +109,9 @@ module Mighost
       def rollback_all_orphaned!(force: false)
         orphans = OrphanDetector.detect.select(&:recoverable?)
 
-        return { rolled_back: [], failed: [] } if orphans.empty?
+        return {rolled_back: [], failed: []} if orphans.empty?
 
-        results = { rolled_back: [], failed: [] }
+        results = {rolled_back: [], failed: []}
 
         orphans.each do |orphan|
           rollback_single(orphan.version, results)
@@ -131,8 +131,8 @@ module Mighost
         rollbacker = new(version)
         rollbacker.rollback!
         results[:rolled_back] << version
-      rescue StandardError => e
-        results[:failed] << { version: version, error: e.message }
+      rescue => e
+        results[:failed] << {version: version, error: e.message}
       end
     end
   end

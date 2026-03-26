@@ -86,7 +86,7 @@ module Mighost
           next if is_dismissed && !include_dismissed
 
           snapshot = snapshots_by_version[version]
-          log "  #{version} - orphaned#{snapshot ? ", has snapshot (#{snapshot.source})" : ""}"
+          log "  #{version} - orphaned#{", has snapshot (#{snapshot.source})" if snapshot}"
 
           orphaned << OrphanedMigration.new(
             version: version,
@@ -137,8 +137,8 @@ module Mighost
 
       def migrated_versions
         Mighost::Base.connection
-               .select_values("SELECT version FROM #{schema_migrations_table}")
-               .map(&:to_s)
+          .select_values("SELECT version FROM #{schema_migrations_table}")
+          .map(&:to_s)
       end
 
       def schema_migrations_table

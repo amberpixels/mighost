@@ -5,7 +5,7 @@ require "active_record"
 module Mighost
   class Snapshot
     attr_accessor :id, :version, :content, :filename, :branch_name, :git_sha, :content_hash, :migrated_at, :source,
-                  :dismissed, :dismissed_at, :author_name, :author_email
+      :dismissed, :dismissed_at, :author_name, :author_email
 
     # Special version used to store scan metadata
     SCAN_METADATA_VERSION = "__scan_metadata__"
@@ -60,12 +60,12 @@ module Mighost
         ensure_table_exists!
         if Mighost.configuration.stealth_mode?
           stealth_store(version: version, content: content, filename: filename,
-                        branch_name: branch_name, git_sha: git_sha, source: source,
-                        author_name: author_name, author_email: author_email)
+            branch_name: branch_name, git_sha: git_sha, source: source,
+            author_name: author_name, author_email: author_email)
         else
           ar_store(version: version, content: content, filename: filename,
-                   branch_name: branch_name, git_sha: git_sha, source: source,
-                   author_name: author_name, author_email: author_email)
+            branch_name: branch_name, git_sha: git_sha, source: source,
+            author_name: author_name, author_email: author_email)
         end
       end
 
@@ -88,7 +88,7 @@ module Mighost
         record = find_by_version(SCAN_METADATA_VERSION)
         return nil unless record
 
-        { branch: record.branch_name, sha: record.git_sha }
+        {branch: record.branch_name, sha: record.git_sha}
       end
 
       # Dismiss a migration (mark as hidden)
@@ -96,14 +96,7 @@ module Mighost
         ensure_table_exists!
         existing = find_by_version(version)
 
-        if existing
-          # Update existing record
-          if Mighost.configuration.stealth_mode?
-            stealth_update_dismissed(version, true)
-          else
-            ar_update_dismissed(version, true)
-          end
-        else
+        unless existing
           # Create new record for unknown orphan
           store(
             version: version,
@@ -111,11 +104,12 @@ module Mighost
             filename: "",
             source: nil
           )
-          if Mighost.configuration.stealth_mode?
-            stealth_update_dismissed(version, true)
-          else
-            ar_update_dismissed(version, true)
-          end
+        end
+
+        if Mighost.configuration.stealth_mode?
+          stealth_update_dismissed(version, true)
+        else
+          ar_update_dismissed(version, true)
         end
 
         find_by_version(version)

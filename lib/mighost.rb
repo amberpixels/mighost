@@ -24,7 +24,6 @@ module Mighost
     def enabled?
       configuration.enabled?
     end
-
   end
 
   # Mirrors ActiveRecord::Base.connection with Rails 6.1–8.1 compatibility.

@@ -58,7 +58,11 @@ module Mighost
         file_path = lines[1]
         return nil if file_path.nil? || file_path.empty?
 
-        date = Time.parse(date_str) rescue nil
+        date = begin
+          Time.parse(date_str)
+        rescue
+          nil
+        end
         return nil unless date
 
         # Extract branch name from decorated refs (may be empty if commit is not a branch tip)

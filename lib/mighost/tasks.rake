@@ -45,7 +45,6 @@ namespace :mighost do
     HELP
   end
 
-
   desc "Show orphaned migrations (in DB but no file). DEBUG=1, SHOW_DISMISSED=1"
   task status: :environment do
     Mighost::OrphanDetector.debug = ENV["DEBUG"] == "1"
@@ -100,7 +99,7 @@ namespace :mighost do
 
     Mighost::UI.render_recoverable_list(orphans)
 
-    results = { rolled_back: [], failed: [], skipped: [] }
+    results = {rolled_back: [], failed: [], skipped: []}
     rollback_all = force
 
     orphans.each do |orphan|
@@ -122,8 +121,8 @@ namespace :mighost do
         Mighost::Rollbacker.rollback_version!(orphan.version)
         results[:rolled_back] << orphan.version
         Mighost::UI.success "  Rolled back #{orphan.version}"
-      rescue StandardError => e
-        results[:failed] << { version: orphan.version, error: e.message }
+      rescue => e
+        results[:failed] << {version: orphan.version, error: e.message}
         Mighost::UI.error "  Failed: #{e.message}"
       end
     end
@@ -138,8 +137,8 @@ namespace :mighost do
     rescan = ENV["RESCAN"] == "1"
     migration_paths = Rails.application.config.paths["db/migrate"].to_ary
     migrated_versions = Mighost::Base.connection
-                                          .select_values("SELECT version FROM schema_migrations")
-                                          .map(&:to_s)
+      .select_values("SELECT version FROM schema_migrations")
+      .map(&:to_s)
 
     captured = 0
     git_recovered = 0
@@ -225,8 +224,8 @@ namespace :mighost do
   task cleanup: :environment do
     Mighost::Snapshot.ensure_table_exists!
     migrated_versions = Mighost::Base.connection
-                                          .select_values("SELECT version FROM schema_migrations")
-                                          .map(&:to_s)
+      .select_values("SELECT version FROM schema_migrations")
+      .map(&:to_s)
 
     all_record_versions = Mighost::Snapshot.all_versions
     stale_versions = all_record_versions - migrated_versions
@@ -301,7 +300,7 @@ namespace :mighost do
     end
     puts ""
 
-    results = { dismissed: [], skipped: [] }
+    results = {dismissed: [], skipped: []}
     dismiss_all = ENV["FORCE"] == "1"
 
     to_dismiss.each do |version|
@@ -323,7 +322,7 @@ namespace :mighost do
           puts "\n#{Mighost::UI.color.cyan("Dismissing all remaining:")}"
           remaining.each do |v|
             o = orphan_map[v]
-            puts "  #{Mighost::UI.color.dim(v)} - #{o&.filename || '(unknown)'}"
+            puts "  #{Mighost::UI.color.dim(v)} - #{o&.filename || "(unknown)"}"
           end
 
           if Mighost::UI.confirm?("Confirm dismiss all #{remaining.count}?")
@@ -415,7 +414,7 @@ namespace :mighost do
       available_versions.select { |v| v >= lower }
     when /^(.+)\.\.(.+)$/ # aaa..bbb (range)
       lower, upper = $1, $2
-      available_versions.select { |v| v >= lower && v <= upper }
+      available_versions.select { |v| v.between?(lower, upper) }
     else # single version
       available_versions.include?(param) ? [param] : []
     end

@@ -6,7 +6,7 @@ module Mighost
   module UI
     # Minimal ANSI color helpers (replaces Pastel gem)
     module Color
-      CODES = { red: 31, green: 32, yellow: 33, cyan: 36, dim: 2 }.freeze
+      CODES = {red: 31, green: 32, yellow: 33, cyan: 36, dim: 2}.freeze
 
       class << self
         def enabled?
@@ -52,13 +52,13 @@ module Mighost
 
         if actionable.any? && suggested.any?
           rows << :separator
-          rows << [{ value: color.dim(" Suggested to Dismiss (#{suggested.count} old, unrecoverable)"), colspan: 7 }]
+          rows << [{value: color.dim(" Suggested to Dismiss (#{suggested.count} old, unrecoverable)"), colspan: 7}]
           rows << :separator
         end
 
         suggested.each { |o| rows << build_orphan_row(o, dim: true) }
 
-        table = Terminal::Table.new(headings: headings, rows: rows, style: { border: :unicode })
+        table = Terminal::Table.new(headings: headings, rows: rows, style: {border: :unicode})
 
         puts table
 
@@ -103,10 +103,10 @@ module Mighost
         end
 
         count_text = if limit && total_count && total_count > records.count
-                       "#{records.count} of #{total_count}"
-                     else
-                       records.count.to_s
-                     end
+          "#{records.count} of #{total_count}"
+        else
+          records.count.to_s
+        end
 
         headings = %w[Version Branch SHA Captured Name Author].map { |h| color.cyan(h) }
 
@@ -121,7 +121,7 @@ module Mighost
           [version, branch, sha, captured, name, author]
         end
 
-        table = Terminal::Table.new(headings: headings, rows: rows, style: { border: :unicode })
+        table = Terminal::Table.new(headings: headings, rows: rows, style: {border: :unicode})
 
         output = []
         output << "\n#{color.cyan("Migration Records")} (#{count_text}):\n\n"

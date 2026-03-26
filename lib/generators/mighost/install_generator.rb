@@ -13,7 +13,7 @@ module Mighost
       desc "Creates a Mighost initializer and migration for team storage mode"
 
       class_option :storage, type: :string, default: "stealth",
-                             desc: "Storage mode: 'stealth' (SQLite file, personal) or 'team' (project DB, shared)"
+        desc: "Storage mode: 'stealth' (SQLite file, personal) or 'team' (project DB, shared)"
 
       def create_initializer
         template "initializer.rb.tt", "config/initializers/mighost.rb"
@@ -23,7 +23,7 @@ module Mighost
         return unless options[:storage] == "team"
 
         migration_template "create_mighost_snapshots.rb.tt",
-                           File.join(db_migrate_path, "create_mighost_snapshots.rb")
+          File.join(db_migrate_path, "create_mighost_snapshots.rb")
       end
 
       def show_instructions

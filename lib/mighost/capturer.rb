@@ -37,7 +37,7 @@ module Mighost
       end
 
       Snapshot.store(**attributes)
-    rescue StandardError => e
+    rescue => e
       # Don't break migrations if snapshot capture fails
       warn "[Mighost] Failed to capture snapshot for #{version}: #{e.message}"
     end
@@ -52,7 +52,7 @@ module Mighost
       return [nil, nil] if output.empty?
 
       output.split("\t", 2)
-    rescue StandardError
+    rescue
       [nil, nil]
     end
   end
