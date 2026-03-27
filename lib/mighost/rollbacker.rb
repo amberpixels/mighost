@@ -3,6 +3,7 @@
 require "tempfile"
 require_relative "snapshot"
 require_relative "git_recovery"
+require_relative "worktree_recovery"
 
 module Mighost
   class Rollbacker
@@ -48,7 +49,16 @@ module Mighost
       if git_data
         @content = git_data[:content]
         @filename = git_data[:filename]
-        @recovery_source = :git
+        @recovery_source = :branch
+        return
+      end
+
+      # Fallback to worktree recovery (uncommitted files in other worktrees)
+      wt_data = WorktreeRecovery.find_migration(version)
+      if wt_data
+        @content = wt_data[:content]
+        @filename = wt_data[:filename]
+        @recovery_source = :worktree
       end
     end
 

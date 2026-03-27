@@ -7,6 +7,7 @@ require "mighost/snapshot"
 require "mighost/ui"
 require "mighost/git_metadata"
 require "mighost/git_recovery"
+require "mighost/worktree_recovery"
 
 namespace :mighost do
   desc "Show available commands"
@@ -189,7 +190,35 @@ namespace :mighost do
       git_recovered += 1
     end
 
-    # Phase 3: Store scan metadata
+    # Phase 3: Search other worktrees for uncommitted migrations
+    worktree_recovered = 0
+    remaining_orphans = orphan_versions.reject do |version|
+      existing = Mighost::Snapshot.find_by_version(version)
+      !rescan && existing&.source.present?
+    end
+
+    if remaining_orphans.any?
+      Mighost::UI.info "Searching other worktrees for uncommitted migrations..."
+
+      remaining_orphans.each do |version|
+        wt_data = Mighost::WorktreeRecovery.find_migration(version)
+        next unless wt_data
+
+        Mighost::Snapshot.store(
+          version: version,
+          content: wt_data[:content],
+          filename: wt_data[:filename],
+          branch_name: wt_data[:branch],
+          source: "worktree",
+          author_name: wt_data[:author_name],
+          author_email: wt_data[:author_email]
+        )
+        Mighost::UI.info "Worktree recovered: #{wt_data[:filename]} (from #{wt_data[:branch]})"
+        worktree_recovered += 1
+      end
+    end
+
+    # Phase 4: Store scan metadata
     current_branch = Mighost::GitMetadata.current_branch
     current_sha = Mighost::GitMetadata.current_sha
     Mighost::Snapshot.store_scan_metadata(branch: current_branch, sha: current_sha)
@@ -199,6 +228,7 @@ namespace :mighost do
     Mighost::UI.success "Scan complete:"
     Mighost::UI.info "  - Captured #{captured} migration(s) from files"
     Mighost::UI.info "  - Recovered #{git_recovered} orphan(s) from git history"
+    Mighost::UI.info "  - Recovered #{worktree_recovered} orphan(s) from worktrees" if worktree_recovered > 0
     Mighost::UI.info "  - Scan context: #{current_branch} @ #{current_sha}"
   end
 

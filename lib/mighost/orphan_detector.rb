@@ -27,7 +27,8 @@ module Mighost
       def recovery_source
         case source
         when "file" then :snapshot
-        when "git" then :git
+        when "git" then :branch
+        when "worktree" then :worktree
         end
       end
 

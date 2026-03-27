@@ -42,17 +42,31 @@ module Mighost
 
         require_relative "git_recovery"
         git_data = GitRecovery.find_migration(version)
-        return nil unless git_data
+        if git_data
+          return store(
+            version: version,
+            content: git_data[:content],
+            filename: git_data[:filename],
+            branch_name: git_data[:branch],
+            git_sha: git_data[:sha],
+            source: "git",
+            author_name: git_data[:author_name],
+            author_email: git_data[:author_email]
+          )
+        end
+
+        require_relative "worktree_recovery"
+        wt_data = WorktreeRecovery.find_migration(version)
+        return nil unless wt_data
 
         store(
           version: version,
-          content: git_data[:content],
-          filename: git_data[:filename],
-          branch_name: git_data[:branch],
-          git_sha: git_data[:sha],
-          source: "git",
-          author_name: git_data[:author_name],
-          author_email: git_data[:author_email]
+          content: wt_data[:content],
+          filename: wt_data[:filename],
+          branch_name: wt_data[:branch],
+          source: "worktree",
+          author_name: wt_data[:author_name],
+          author_email: wt_data[:author_email]
         )
       end
 

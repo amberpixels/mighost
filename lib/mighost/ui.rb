@@ -240,7 +240,8 @@ module Mighost
       def format_recovery(source)
         case source
         when :snapshot then color.green("snapshot")
-        when :git then color.yellow("git")
+        when :branch then color.yellow("branch")
+        when :worktree then color.yellow("worktree")
         else color.dim("-")
         end
       end
