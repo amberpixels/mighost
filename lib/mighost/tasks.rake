@@ -1,21 +1,14 @@
 # frozen_string_literal: true
 
 require "mighost"
-require "mighost/orphan_detector"
-require "mighost/rollbacker"
-require "mighost/snapshot"
-require "mighost/ui"
-require "mighost/git_metadata"
-require "mighost/git_recovery"
-require "mighost/worktree_recovery"
 
 namespace :mighost do
   desc "Show available commands"
   task :help do
     puts <<~HELP
-      #{Mighost::UI.color.cyan("Mighost")} - Rollback Rails migrations even when the file is missing
+      Mighost - Rollback Rails migrations even when the file is missing
 
-      #{Mighost::UI.color.cyan("Commands:")}
+      Commands:
         rails mighost:status              Show orphaned migrations (in DB but no file)
         rails mighost:rollback            Rollback orphaned migrations (interactive)
         rails mighost:scan                Capture migrations + search git for orphans
@@ -25,7 +18,7 @@ namespace :mighost do
         rails mighost:dismissed           List dismissed migrations
         rails mighost:cleanup             Remove stale records
 
-      #{Mighost::UI.color.cyan("Options:")}
+      Options:
         VERSION=x        Target specific version (rollback, dismiss, undismiss)
         VERSION=a..b     Version range: a to b inclusive
         VERSION=..b      All versions up to b
@@ -37,7 +30,7 @@ namespace :mighost do
         LIMIT=N          Limit output rows (list)
         DEBUG=1          Verbose output (status)
 
-      #{Mighost::UI.color.cyan("Typical workflow:")}
+      Typical workflow:
         1. rails mighost:scan       # First time setup
         2. rails mighost:status     # Check for orphaned migrations
         3. rails mighost:rollback   # Rollback interactively
@@ -48,67 +41,60 @@ namespace :mighost do
 
   desc "Show orphaned migrations (in DB but no file). DEBUG=1, SHOW_DISMISSED=1"
   task status: :environment do
+    ui = Mighost.ui
     Mighost::OrphanDetector.debug = ENV["DEBUG"] == "1"
     show_dismissed = ENV["SHOW_DISMISSED"] == "1"
 
-    orphans = Mighost::OrphanDetector.detect(include_dismissed: show_dismissed)
+    orphans = Mighost::API.orphaned_migrations(include_dismissed: show_dismissed)
+    ui.render_orphans(orphans)
 
-    Mighost::UI.render_orphans_table(orphans)
-
-    # Show dismissed count hint if there are dismissed migrations
     unless show_dismissed
-      dismissed_count = Mighost::Snapshot.dismissed_versions.count
-      if dismissed_count.positive?
-        puts ""
-        Mighost::UI.hint "#{dismissed_count} dismissed migration(s) hidden. Use SHOW_DISMISSED=1 to show."
-      end
+      dismissed_count = Mighost::API.dismissed_count
+      ui.hint "#{dismissed_count} dismissed migration(s) hidden. Use SHOW_DISMISSED=1 to show." if dismissed_count.positive?
     end
 
-    # Check for branch change if there are non-recoverable orphans
     non_recoverable = orphans.reject(&:recoverable?)
     if non_recoverable.any? && Mighost::OrphanDetector.branch_changed?
-      puts "" unless show_dismissed
-      Mighost::UI.hint "Branch changed since last scan. Run 'rails mighost:scan' to update recovery info."
+      ui.hint "Branch changed since last scan. Run 'rails mighost:scan' to update recovery info."
     end
   end
 
   desc "Rollback orphaned migrations. VERSION=xxx for specific, FORCE=1 to skip confirmation"
   task rollback: :environment do
+    ui = Mighost.ui
     version = ENV["VERSION"]
     force = ENV["FORCE"] == "1"
 
-    # Single version mode
     if version
       begin
-        Mighost::Rollbacker.rollback_version!(version)
-        Mighost::UI.success "Successfully rolled back migration #{version}"
+        Mighost::API.rollback_version!(version)
+        ui.success "Successfully rolled back migration #{version}"
       rescue Mighost::SnapshotNotFound
-        Mighost::UI.error "No record found for version #{version}"
+        ui.error "No record found for version #{version}"
       rescue Mighost::RollbackFailed => e
-        Mighost::UI.error "Failed to rollback: #{e.message}"
+        ui.error "Failed to rollback: #{e.message}"
       end
       next
     end
 
-    # All orphans mode
-    orphans = Mighost::OrphanDetector.detect.select(&:recoverable?)
+    orphans = Mighost::API.orphaned_migrations.select(&:recoverable?)
 
     if orphans.empty?
-      Mighost::UI.info "No recoverable orphaned migrations found."
+      ui.info "No recoverable orphaned migrations found."
       next
     end
 
-    Mighost::UI.render_recoverable_list(orphans)
+    ui.render_recoverable_list(orphans)
 
     results = {rolled_back: [], failed: [], skipped: []}
     rollback_all = force
 
     orphans.each do |orphan|
       unless rollback_all
-        response = Mighost::UI.confirm_each?(orphan)
+        response = ui.confirm_each?(orphan)
         case response
         when :quit
-          Mighost::UI.warning "\nAborted."
+          ui.warning "Aborted."
           break
         when :no
           results[:skipped] << orphan.version
@@ -119,139 +105,48 @@ namespace :mighost do
       end
 
       begin
-        Mighost::Rollbacker.rollback_version!(orphan.version)
+        Mighost::API.rollback_version!(orphan.version)
         results[:rolled_back] << orphan.version
-        Mighost::UI.success "  Rolled back #{orphan.version}"
+        ui.success "  Rolled back #{orphan.version}"
       rescue => e
         results[:failed] << {version: orphan.version, error: e.message}
-        Mighost::UI.error "  Failed: #{e.message}"
+        ui.error "  Failed: #{e.message}"
       end
     end
 
-    # Summary
-    puts ""
-    Mighost::UI.info "Done: #{results[:rolled_back].size} rolled back, #{results[:skipped].size} skipped, #{results[:failed].size} failed"
+    ui.info "Done: #{results[:rolled_back].size} rolled back, #{results[:skipped].size} skipped, #{results[:failed].size} failed"
   end
 
   desc "Scan and capture existing migrations, search git for orphans. RESCAN=1 to force re-capture all"
   task scan: :environment do
-    rescan = ENV["RESCAN"] == "1"
-    migration_paths = Rails.application.config.paths["db/migrate"].to_ary
-    migrated_versions = Mighost::Base.connection
-      .select_values("SELECT version FROM schema_migrations")
-      .map(&:to_s)
+    ui = Mighost.ui
+    result = Mighost::API.scan!(rescan: ENV["RESCAN"] == "1")
 
-    captured = 0
-    git_recovered = 0
-
-    # Phase 1: Capture existing migration files
-    migration_paths.each do |path|
-      Dir.glob(File.join(path, "*.rb")).each do |file|
-        basename = File.basename(file)
-        version = basename.split("_").first
-
-        next unless migrated_versions.include?(version)
-        next if !rescan && Mighost::Snapshot.find_by_version(version)
-
-        Mighost::Capturer.new(version, file).capture
-        Mighost::UI.info "Captured: #{basename}"
-        captured += 1
-      end
-    end
-
-    # Phase 2: Search git for orphaned migrations without recovery info
-    Mighost::UI.info "\nSearching git history for orphaned migrations..."
-
-    orphan_versions = migrated_versions.reject do |version|
-      # Has file on disk?
-      migration_paths.any? { |p| Dir.glob(File.join(p, "#{version}_*.rb")).any? }
-    end
-
-    orphan_versions.each do |version|
-      # Check if we already have a snapshot with recovery info
-      existing = Mighost::Snapshot.find_by_version(version)
-      next if !rescan && existing&.source.present?
-
-      # Search git history
-      git_data = Mighost::GitRecovery.find_migration(version)
-      next unless git_data
-
-      Mighost::Snapshot.store(
-        version: version,
-        content: git_data[:content],
-        filename: git_data[:filename],
-        branch_name: git_data[:branch],
-        git_sha: git_data[:sha],
-        source: "git",
-        author_name: git_data[:author_name],
-        author_email: git_data[:author_email]
-      )
-      Mighost::UI.info "Git recovered: #{git_data[:filename]} (from #{git_data[:branch]})"
-      git_recovered += 1
-    end
-
-    # Phase 3: Search other worktrees for uncommitted migrations
-    worktree_recovered = 0
-    remaining_orphans = orphan_versions.reject do |version|
-      existing = Mighost::Snapshot.find_by_version(version)
-      !rescan && existing&.source.present?
-    end
-
-    if remaining_orphans.any?
-      Mighost::UI.info "Searching other worktrees for uncommitted migrations..."
-
-      remaining_orphans.each do |version|
-        wt_data = Mighost::WorktreeRecovery.find_migration(version)
-        next unless wt_data
-
-        Mighost::Snapshot.store(
-          version: version,
-          content: wt_data[:content],
-          filename: wt_data[:filename],
-          branch_name: wt_data[:branch],
-          source: "worktree",
-          author_name: wt_data[:author_name],
-          author_email: wt_data[:author_email]
-        )
-        Mighost::UI.info "Worktree recovered: #{wt_data[:filename]} (from #{wt_data[:branch]})"
-        worktree_recovered += 1
-      end
-    end
-
-    # Phase 4: Store scan metadata
-    current_branch = Mighost::GitMetadata.current_branch
-    current_sha = Mighost::GitMetadata.current_sha
-    Mighost::Snapshot.store_scan_metadata(branch: current_branch, sha: current_sha)
-
-    # Summary
-    puts ""
-    Mighost::UI.success "Scan complete:"
-    Mighost::UI.info "  - Captured #{captured} migration(s) from files"
-    Mighost::UI.info "  - Recovered #{git_recovered} orphan(s) from git history"
-    Mighost::UI.info "  - Recovered #{worktree_recovered} orphan(s) from worktrees" if worktree_recovered > 0
-    Mighost::UI.info "  - Scan context: #{current_branch} @ #{current_sha}"
+    ui.render_scan_details(result[:details])
+    ui.render_scan_results(
+      captured: result[:captured],
+      git_recovered: result[:git_recovered],
+      worktree_recovered: result[:worktree_recovered],
+      branch: result[:branch],
+      sha: result[:sha]
+    )
   end
 
   desc "List stored migration records (LIMIT=N to limit)"
   task list: :environment do
-    records = Mighost::Snapshot.all_snapshots
-
-    if records.empty?
-      Mighost::UI.info "No migration records stored."
-      next
-    end
-
     limit = ENV["LIMIT"]&.to_i
+    records = Mighost::API.all_snapshots
     total_count = records.count
     display_records = limit&.positive? ? records.first(limit) : records
 
-    Mighost::UI.render_records_table(display_records, limit: limit, total_count: total_count)
+    Mighost.ui.render_records(display_records, limit: limit, total_count: total_count)
   end
 
   task ls: :list
 
   desc "Clean up stale records for migrations no longer in schema_migrations"
   task cleanup: :environment do
+    ui = Mighost.ui
     Mighost::Snapshot.ensure_table_exists!
     migrated_versions = Mighost::Base.connection
       .select_values("SELECT version FROM schema_migrations")
@@ -261,74 +156,61 @@ namespace :mighost do
     stale_versions = all_record_versions - migrated_versions
 
     if stale_versions.empty?
-      Mighost::UI.info "No stale records to clean up."
+      ui.info "No stale records to clean up."
       next
     end
 
-    Mighost::UI.warning "Found #{stale_versions.count} stale record(s):"
-    stale_versions.each { |v| puts "  #{v}" }
+    ui.warning "Found #{stale_versions.count} stale record(s):"
+    stale_versions.each { |v| ui.info "  #{v}" }
 
     unless ENV["FORCE"] == "1"
-      unless Mighost::UI.confirm?("Delete these records?")
-        Mighost::UI.warning "Aborted."
+      unless ui.confirm?("Delete these records?")
+        ui.warning "Aborted."
         next
       end
     end
 
     stale_versions.each { |v| Mighost::Snapshot.delete_by_version(v) }
-    Mighost::UI.success "Cleaned up #{stale_versions.count} record(s)."
+    ui.success "Cleaned up #{stale_versions.count} record(s)."
   end
 
   desc "Dismiss orphaned migrations (hide from status). VERSION=x, VERSION=a..b (range), OLD=1"
   task dismiss: :environment do
+    ui = Mighost.ui
     version_param = ENV["VERSION"]
     old_only = ENV["OLD"] == "1"
 
-    # Get non-dismissed orphans
-    orphans = Mighost::OrphanDetector.detect(include_dismissed: false)
+    orphans = Mighost::API.orphaned_migrations
 
-    # Filter to old unrecoverable migrations if OLD=1
     if old_only
       orphans = orphans.select(&:suggested_for_dismiss?)
       if orphans.empty?
-        Mighost::UI.info "No old unrecoverable migrations to dismiss."
-        Mighost::UI.hint "Migrations must be older than 6 months and not recoverable."
+        ui.info "No old unrecoverable migrations to dismiss."
+        ui.hint "Migrations must be older than 6 months and not recoverable."
         next
       end
     end
 
     if orphans.empty?
-      Mighost::UI.info "No orphaned migrations to dismiss."
+      ui.info "No orphaned migrations to dismiss."
       next
     end
 
     orphan_versions = orphans.map(&:version).sort
-
-    # If VERSION specified, filter by range; otherwise use all
-    if version_param
-      to_dismiss = parse_version_range(version_param, orphan_versions)
-      if to_dismiss.empty?
-        Mighost::UI.warning "No matching orphaned migrations found."
-        next
-      end
-    else
-      to_dismiss = orphan_versions
-    end
-
     orphan_map = orphans.index_by(&:version)
 
-    # Show preview list
-    puts "\n#{Mighost::UI.color.cyan("Found #{to_dismiss.count} orphaned migration(s) to dismiss:")}\n"
-    preview_count = 10
-    to_dismiss.first(preview_count).each do |v|
-      puts "  #{v}  (#{Mighost::UI.format_version(v)})"
+    to_dismiss = if version_param
+      Mighost::Formatting.parse_version_range(version_param, orphan_versions)
+    else
+      orphan_versions
     end
-    if to_dismiss.count > preview_count
-      remaining = to_dismiss.count - preview_count
-      newest = to_dismiss.last
-      puts "  ... and #{remaining} more up to #{Mighost::UI.format_version(newest)}"
+
+    if to_dismiss.empty?
+      ui.warning "No matching orphaned migrations found."
+      next
     end
-    puts ""
+
+    ui.render_dismiss_preview(to_dismiss, orphan_map)
 
     results = {dismissed: [], skipped: []}
     dismiss_all = ENV["FORCE"] == "1"
@@ -338,75 +220,69 @@ namespace :mighost do
       name = orphan&.filename || "(unknown)"
 
       unless dismiss_all
-        response = Mighost::UI.confirm_dismiss?(version, name)
+        response = ui.confirm_dismiss?(version, name)
         case response
         when :quit
-          Mighost::UI.warning "\nAborted."
+          ui.warning "Aborted."
           break
         when :no
           results[:skipped] << version
           next
         when :all
-          # Show all remaining and confirm
           remaining = to_dismiss[to_dismiss.index(version)..]
-          puts "\n#{Mighost::UI.color.cyan("Dismissing all remaining:")}"
-          remaining.each do |v|
-            o = orphan_map[v]
-            puts "  #{Mighost::UI.color.dim(v)} - #{o&.filename || "(unknown)"}"
-          end
+          ui.render_dismiss_remaining(remaining, orphan_map)
 
-          if Mighost::UI.confirm?("Confirm dismiss all #{remaining.count}?")
+          if ui.confirm?("Confirm dismiss all #{remaining.count}?")
             remaining.each do |v|
-              Mighost::Snapshot.dismiss(v)
+              Mighost::API.dismiss(v)
               results[:dismissed] << v
             end
-            Mighost::UI.success "  Dismissed #{remaining.count} migration(s)."
+            ui.success "Dismissed #{remaining.count} migration(s)."
           else
-            Mighost::UI.warning "Aborted."
+            ui.warning "Aborted."
           end
           break
         end
       end
 
-      Mighost::Snapshot.dismiss(version)
+      Mighost::API.dismiss(version)
       results[:dismissed] << version
-      Mighost::UI.success "  Dismissed #{version}"
+      ui.success "  Dismissed #{version}"
     end
 
-    # Summary
-    puts ""
-    Mighost::UI.info "Done: #{results[:dismissed].size} dismissed, #{results[:skipped].size} skipped"
+    ui.info "Done: #{results[:dismissed].size} dismissed, #{results[:skipped].size} skipped"
   end
 
   desc "Undismiss migrations (restore visibility). VERSION=x or VERSION=a..b"
   task undismiss: :environment do
+    ui = Mighost.ui
     version_param = ENV["VERSION"]
 
     unless version_param
-      Mighost::UI.error "VERSION required. Use same format as dismiss."
+      ui.error "VERSION required. Use same format as dismiss."
       next
     end
 
     dismissed = Mighost::Snapshot.dismissed_versions.sort
 
     if dismissed.empty?
-      Mighost::UI.info "No dismissed migrations."
+      ui.info "No dismissed migrations."
       next
     end
 
-    targets = parse_version_range(version_param, dismissed)
+    targets = Mighost::Formatting.parse_version_range(version_param, dismissed)
 
     if targets.empty?
-      Mighost::UI.warning "No matching dismissed migrations found."
+      ui.warning "No matching dismissed migrations found."
       next
     end
 
     targets.each do |version|
-      Mighost::Snapshot.undismiss(version)
-      Mighost::UI.success "Undismissed #{version}"
+      Mighost::API.undismiss(version)
+      ui.success "Undismissed #{version}"
     end
 
-    Mighost::UI.info "\nRestored #{targets.count} migration(s) to status output."
+    ui.info "Restored #{targets.count} migration(s) to status output."
   end
 
   desc "List dismissed migrations"
@@ -414,39 +290,11 @@ namespace :mighost do
     dismissed = Mighost::Snapshot.dismissed_versions.sort
 
     if dismissed.empty?
-      Mighost::UI.info "No dismissed migrations."
+      Mighost.ui.info "No dismissed migrations."
       next
     end
 
-    puts "\n#{Mighost::UI.color.cyan("Dismissed migrations")} (#{dismissed.count}):\n\n"
-
-    dismissed.each do |version|
-      snapshot = Mighost::Snapshot.find_by_version(version)
-      name = snapshot&.filename.presence || "(unknown)"
-      dismissed_at = snapshot&.dismissed_at
-      date_str = dismissed_at ? " (dismissed #{dismissed_at[0, 10]})" : ""
-      puts "  #{Mighost::UI.color.dim(version)} - #{name}#{date_str}"
-    end
-
-    puts "\n#{Mighost::UI.color.cyan("Tip:")} Use 'rails mighost:undismiss VERSION=x' to restore."
-  end
-
-  # Helper to parse version range parameter
-  def parse_version_range(param, available_versions)
-    return [] if available_versions.empty?
-
-    case param
-    when /^\.\.(.+)$/ # ..bbb (up to)
-      upper = $1
-      available_versions.select { |v| v <= upper }
-    when /^(.+)\.\.$/ # aaa.. (from onwards)
-      lower = $1
-      available_versions.select { |v| v >= lower }
-    when /^(.+)\.\.(.+)$/ # aaa..bbb (range)
-      lower, upper = $1, $2
-      available_versions.select { |v| v.between?(lower, upper) }
-    else # single version
-      available_versions.include?(param) ? [param] : []
-    end
+    dismissed_snapshots = dismissed.map { |v| [v, Mighost::API.find_snapshot(v)] }
+    Mighost.ui.render_dismissed_list(dismissed_snapshots)
   end
 end

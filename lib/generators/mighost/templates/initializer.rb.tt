@@ -1,20 +1,9 @@
 # frozen_string_literal: true
 
 Mighost.configure do |config|
-  # Storage mode:
-  #   :stealth - Local SQLite file, personal use, no schema changes
-  #   :team    - Project database, shared with team, requires migration
-  config.storage = :<%= options[:storage] %>
-
-<% if options[:storage] == "stealth" -%>
   # Path to SQLite file (relative to Rails.root)
-  # config.stealth_storage_path = ".mighost.sqlite3"
+  # config.storage_path = ".mighost.sqlite3"
 
-<% else -%>
-  # Table name for snapshots
-  # config.table_name = :mighost_snapshots
-
-<% end -%>
   # Auto-capture migrations when they run
   config.auto_capture = true
 

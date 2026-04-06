@@ -15,7 +15,11 @@ When working with Rails migrations across git branches:
 
 ## The Solution
 
-Mighost automatically captures migration file contents when they run, enabling rollback even when the original file is not present.
+Mighost automatically captures migration file contents when they run, enabling rollback even when the original file is not present. It uses a 3-tier recovery strategy:
+
+1. **Stored snapshots** — captured at migration time into a local SQLite file
+2. **Git history** — searches across all branches
+3. **Worktree recovery** — finds files in other git worktrees
 
 ## Installation
 
@@ -32,31 +36,7 @@ bundle install
 rails generate mighost:install
 ```
 
-## Storage Modes
-
-### Stealth Mode (Default)
-
-Stores snapshots in a local SQLite file (`.mighost.sqlite3`). Perfect for personal use - no schema changes, teammates don't need to know.
-
-```bash
-rails generate mighost:install
-# or explicitly:
-rails generate mighost:install --storage=stealth
-```
-
-Add to `.gitignore`:
-```
-.mighost.sqlite3
-```
-
-### Team Mode
-
-Stores snapshots in your project's database. Visible to everyone, requires a migration.
-
-```bash
-rails generate mighost:install --storage=team
-rails db:migrate
-```
+Add `.mighost.sqlite3` to your `.gitignore`.
 
 ## Usage
 
@@ -64,18 +44,6 @@ rails db:migrate
 
 ```bash
 rails mighost:status
-```
-
-Output:
-```
-Orphaned Migrations (2 total, 2 recoverable):
-
-Version          Filename                                 Branch               SHA          Recoverable
---------------------------------------------------------------------------------------------------------------
-20240115123456   20240115123456_add_feature_flag.rb       feature/flags        a1b2c3d4     Yes
-20240110111111   20240110111111_create_widgets.rb         feature/widgets      e5f6g7h8     Yes
-
-Run 'rails mighost:rollback' to rollback recoverable migrations.
 ```
 
 ### Rollback orphaned migrations
@@ -88,31 +56,38 @@ rails mighost:rollback
 FORCE=1 rails mighost:rollback
 
 # Specific version
-rails mighost:rollback_version VERSION=20240115123456
+rails mighost:rollback VERSION=20240115123456
 ```
 
-### Capture existing migrations
+### Scan existing migrations & git history
 
 If you install Mighost on an existing project:
 
 ```bash
-rails mighost:capture_existing
+rails mighost:scan
 ```
 
-This captures all migration files that have already been run.
+### All commands
 
-### View stored snapshots
+| Command | Description | Options |
+|---------|-------------|---------|
+| `mighost:status` | Show orphaned migrations | `DEBUG=1`, `SHOW_DISMISSED=1` |
+| `mighost:rollback` | Rollback orphaned migrations | `VERSION=x`, `FORCE=1` |
+| `mighost:scan` | Capture migrations + search git | `RESCAN=1` |
+| `mighost:list` (`ls`) | List stored migration records | `LIMIT=N` |
+| `mighost:dismiss` | Hide migrations from status | `VERSION=x`, `VERSION=a..b`, `OLD=1` |
+| `mighost:undismiss` | Restore dismissed migrations | `VERSION=x` |
+| `mighost:dismissed` | List dismissed migrations | |
+| `mighost:cleanup` | Remove stale records | `FORCE=1` |
+| `mighost:help` | Show command reference | |
+
+### Version ranges
 
 ```bash
-rails mighost:snapshots
-```
-
-### Clean up stale snapshots
-
-Remove snapshots for migrations no longer in `schema_migrations`:
-
-```bash
-rails mighost:cleanup
+VERSION=20240115123456       # Single version
+VERSION=20240110..20240120   # Inclusive range
+VERSION=20240110..           # From version onwards
+VERSION=..20240120           # Up to version
 ```
 
 ## Configuration
@@ -120,16 +95,8 @@ rails mighost:cleanup
 ```ruby
 # config/initializers/mighost.rb
 Mighost.configure do |config|
-  # Storage mode:
-  #   :stealth - Local SQLite file, personal use, no schema changes
-  #   :team    - Project database, shared with team, requires migration
-  config.storage = :stealth
-
-  # Path to SQLite file (stealth mode)
-  config.stealth_storage_path = ".mighost.sqlite3"
-
-  # Table name (team mode)
-  config.table_name = :mighost_snapshots
+  # Path to SQLite file (relative to Rails.root)
+  config.storage_path = ".mighost.sqlite3"
 
   # Auto-capture on migrate
   config.auto_capture = true
@@ -142,13 +109,55 @@ Mighost.configure do |config|
 end
 ```
 
+## Rich Output with Railbow
+
+By default, Mighost outputs plain, uncolored text. For rich, colorized output with tables, emojis, and git enrichment, use the [railbow](https://github.com/amberpixels/railbow) gem:
+
+```ruby
+gem 'railbow'
+```
+
+Railbow automatically detects Mighost and enhances its output.
+
+## Public API
+
+Mighost exposes a stable API for programmatic access:
+
+```ruby
+# Detect orphaned migrations
+Mighost::API.orphaned_migrations                  # => [OrphanedMigration, ...]
+
+# Find snapshots
+Mighost::API.find_snapshot("20240115123456")       # => Snapshot or nil
+Mighost::API.find_or_recover_snapshot("20240115")  # => Snapshot (with git/worktree fallback)
+
+# Scan and recover
+Mighost::API.scan!(rescan: false)                  # => {captured:, git_recovered:, ...}
+
+# Rollback
+Mighost::API.rollback_version!("20240115123456")   # raises on failure
+```
+
+### UI Adapter
+
+Mighost uses a pluggable UI adapter for output. Replace it to customize formatting:
+
+```ruby
+# In your railtie or initializer:
+Mighost.ui = YourCustomUI.new
+```
+
+The adapter must implement: `render_orphans`, `render_records`, `render_recoverable_list`, `render_rollback_results`, `render_scan_results`, `confirm?`, `confirm_each?`, `confirm_dismiss?`, `success`, `error`, `warning`, `info`, `hint`.
+
 ## How It Works
 
-1. **Capture**: When you run `db:migrate`, Mighost hooks into `ActiveRecord::Migrator` and stores the migration file content along with git metadata (branch, SHA).
+1. **Capture**: When you run `db:migrate`, Mighost hooks into `ActiveRecord::Migrator` and stores the migration file content along with git metadata (branch, SHA) in a local SQLite file.
 
 2. **Detect**: `mighost:status` compares `schema_migrations` table with actual migration files to find orphans.
 
-3. **Rollback**: `mighost:rollback` writes the stored content to a temp file, loads it, calls the `down` method, then removes the version from `schema_migrations`.
+3. **Recover**: For missing files, Mighost searches stored snapshots, git history (all branches), and other git worktrees.
+
+4. **Rollback**: Writes recovered content to a temp file, loads it, calls the `down` method, then removes the version from `schema_migrations`.
 
 ## Limitations
 

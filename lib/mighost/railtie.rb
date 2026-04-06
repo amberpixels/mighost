@@ -7,7 +7,6 @@ module Mighost
     railtie_name :mighost
 
     initializer "mighost.configure" do
-      # Disable in production by default
       Mighost.configuration.enabled = !Rails.env.production?
     end
 

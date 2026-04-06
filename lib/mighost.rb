@@ -2,6 +2,9 @@
 
 require_relative "mighost/version"
 require_relative "mighost/configuration"
+require_relative "mighost/formatting"
+require_relative "mighost/plain_ui"
+require_relative "mighost/api"
 
 module Mighost
   class Error < StandardError; end
@@ -24,6 +27,14 @@ module Mighost
     def enabled?
       configuration.enabled?
     end
+
+    # Pluggable UI adapter. Defaults to PlainUI (no colors, no dependencies).
+    # Replace with a custom adapter for rich output (e.g. railbow).
+    def ui
+      @ui ||= PlainUI.new
+    end
+
+    attr_writer :ui
   end
 
   # Mirrors ActiveRecord::Base.connection with Rails 6.1–8.1 compatibility.

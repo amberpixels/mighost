@@ -2,14 +2,8 @@
 
 module Mighost
   class Configuration
-    # Storage mode: :stealth (SQLite file) or :team (project's DB)
-    attr_accessor :storage
-
-    # Path to SQLite file (when storage: :stealth)
-    attr_accessor :stealth_storage_path
-
-    # Table name for snapshots (when storage: :team)
-    attr_accessor :table_name
+    # Path to SQLite file (relative to Rails.root)
+    attr_accessor :storage_path
 
     # Auto-capture migrations on db:migrate
     attr_accessor :auto_capture
@@ -24,9 +18,7 @@ module Mighost
     attr_accessor :dismiss_old_threshold
 
     def initialize
-      @storage = :stealth
-      @stealth_storage_path = ".mighost.sqlite3"
-      @table_name = :mighost_snapshots
+      @storage_path = ".mighost.sqlite3"
       @auto_capture = true
       @store_git_metadata = true
       @enabled = true
@@ -35,14 +27,6 @@ module Mighost
 
     def enabled?
       @enabled
-    end
-
-    def stealth_mode?
-      @storage == :stealth
-    end
-
-    def team_mode?
-      @storage == :team
     end
   end
 end
