@@ -5,14 +5,14 @@
   <rect width="620" height="80" rx="6" fill="transparent"/>
   <!-- Row 1 -->
   <text y="28">
-    <tspan fill="#7C3AED"> ░█▀▄▀█</tspan><tspan fill="#8B5CF6"> ▀█▀</tspan><tspan fill="#A78BFA"> ░█▀▀█</tspan><tspan fill="#93A8F4" opacity="0.9"> ░█─░█</tspan><tspan fill="#7DD3FC" opacity="0.8"> ░█▀▀▀█</tspan><tspan fill="#A5F3FC" opacity="0.65"> ░█▀▀▀█</tspan><tspan fill="#CFFAFE" opacity="0.5"> ▀▀█▀▀</tspan>
+    <tspan fill="#6D28D9"> ░█▀▄▀█</tspan><tspan fill="#7C3AED"> ▀█▀</tspan><tspan fill="#8B5CF6"> ░█▀▀█</tspan><tspan fill="#6366F1" opacity="0.95"> ░█─░█</tspan><tspan fill="#0EA5E9" opacity="0.9"> ░█▀▀▀█</tspan><tspan fill="#06B6D4" opacity="0.8"> ░█▀▀▀█</tspan><tspan fill="#22D3EE" opacity="0.68"> ▀▀█▀▀</tspan>
   </text>
   <!-- Row 2 -->
   <text y="52">
-    <tspan fill="#7C3AED"> ░█░█░█</tspan><tspan fill="#8B5CF6"> ░█─</tspan><tspan fill="#A78BFA"> ░█─▄▄</tspan><tspan fill="#93A8F4" opacity="0.9"> ░█▀▀█</tspan><tspan fill="#7DD3FC" opacity="0.8"> ░█──░█</tspan><tspan fill="#A5F3FC" opacity="0.65"> ─▀▀▀▄▄</tspan><tspan fill="#CFFAFE" opacity="0.5"> ─░█──</tspan>
+    <tspan fill="#6D28D9"> ░█░█░█</tspan><tspan fill="#7C3AED"> ░█─</tspan><tspan fill="#8B5CF6"> ░█─▄▄</tspan><tspan fill="#6366F1" opacity="0.95"> ░█▀▀█</tspan><tspan fill="#0EA5E9" opacity="0.9"> ░█──░█</tspan><tspan fill="#06B6D4" opacity="0.8"> ─▀▀▀▄▄</tspan><tspan fill="#22D3EE" opacity="0.68"> ─░█──</tspan>
   </text>
   <!-- Row 3 -->
   <text y="76">
-    <tspan fill="#7C3AED"> ░█──░█</tspan><tspan fill="#8B5CF6"> ▄█▄</tspan><tspan fill="#A78BFA"> ░█▄▄█</tspan><tspan fill="#93A8F4" opacity="0.9"> ░█─░█</tspan><tspan fill="#7DD3FC" opacity="0.8"> ░█▄▄▄█</tspan><tspan fill="#A5F3FC" opacity="0.65"> ░█▄▄▄█</tspan><tspan fill="#CFFAFE" opacity="0.5"> ─░█──</tspan>
+    <tspan fill="#6D28D9"> ░█──░█</tspan><tspan fill="#7C3AED"> ▄█▄</tspan><tspan fill="#8B5CF6"> ░█▄▄█</tspan><tspan fill="#6366F1" opacity="0.95"> ░█─░█</tspan><tspan fill="#0EA5E9" opacity="0.9"> ░█▄▄▄█</tspan><tspan fill="#06B6D4" opacity="0.8"> ░█▄▄▄█</tspan><tspan fill="#22D3EE" opacity="0.68"> ─░█──</tspan>
   </text>
 </svg>
