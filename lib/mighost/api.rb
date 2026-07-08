@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "active_support"
 require "active_support/core_ext/object/blank"
 require_relative "orphan_detector"
 require_relative "snapshot"

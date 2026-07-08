@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "tempfile"
+require "active_support"
 require "active_support/core_ext/object/blank"
 require_relative "snapshot"
 require_relative "git_recovery"

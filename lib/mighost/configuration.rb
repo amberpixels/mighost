@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# active_support must load before any core_ext cherry-pick (AS 7.1 requirement)
+require "active_support"
 require "active_support/core_ext/integer/time"
 
 module Mighost

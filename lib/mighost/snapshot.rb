@@ -2,6 +2,7 @@
 
 require "time"
 require "digest"
+require "active_support"
 require "active_support/core_ext/time"
 
 module Mighost

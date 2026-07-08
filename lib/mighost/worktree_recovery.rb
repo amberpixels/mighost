@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "shellwords"
+require "active_support"
 require "active_support/core_ext/object/blank"
 require_relative "git_metadata"
 
