@@ -1,6 +1,18 @@
-# Mighost
+<p align="center">
+  <img src="logo.svg" alt="Mighost" width="620">
+</p>
 
-Rollback Rails migrations even when the migration file is missing.
+<div align="center">
+
+### Rollback Rails migrations even when the migration file is missing.
+
+[![Gem Version](https://img.shields.io/gem/v/mighost)](https://rubygems.org/gems/mighost)
+[![CI](https://github.com/amberpixels/mighost/actions/workflows/ci.yml/badge.svg)](https://github.com/amberpixels/mighost/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+
+</div>
+
+---
 
 ## The Problem
 
@@ -37,6 +49,8 @@ rails generate mighost:install
 ```
 
 Add `.mighost.sqlite3` to your `.gitignore`.
+
+Requires Ruby >= 3.1 and Rails 6.1–8.1.
 
 ## Usage
 
@@ -147,7 +161,7 @@ Mighost uses a pluggable UI adapter for output. Replace it to customize formatti
 Mighost.ui = YourCustomUI.new
 ```
 
-The adapter must implement: `render_orphans`, `render_records`, `render_recoverable_list`, `render_rollback_results`, `render_scan_results`, `confirm?`, `confirm_each?`, `confirm_dismiss?`, `success`, `error`, `warning`, `info`, `hint`.
+The adapter must implement: `render_orphans`, `render_records`, `render_recoverable_list`, `render_scan_details`, `render_scan_results`, `render_dismiss_preview`, `render_dismiss_remaining`, `render_dismissed_list`, `confirm?`, `confirm_each?`, `confirm_dismiss?`, `success`, `error`, `warning`, `info`, `hint`. See [`Mighost::PlainUI`](lib/mighost/plain_ui.rb) for the reference implementation.
 
 ## How It Works
 
@@ -164,7 +178,12 @@ The adapter must implement: `render_orphans`, `render_records`, `render_recovera
 - **Irreversible migrations**: If the migration raises `ActiveRecord::IrreversibleMigration`, Mighost can't help.
 - **Model dependencies**: If your migration references models/classes that don't exist in the current branch, the rollback may fail.
 - **Manual SQL changes**: If someone manually modified the database, rollback might not work correctly.
+- **Trust**: Recovered migration code (from snapshots, git history, or worktrees) is executed with the same trust as your own migrations — it is code from your repository, run by you.
+
+## Contributing
+
+Bug reports and pull requests are welcome on [GitHub](https://github.com/amberpixels/mighost/issues). Run `bundle exec rake` (specs + standardrb) before submitting.
 
 ## License
 
-MIT License. See [LICENSE.txt](LICENSE.txt).
+MIT License. See [LICENSE](LICENSE).

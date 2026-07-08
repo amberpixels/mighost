@@ -5,7 +5,7 @@ require_relative "lib/mighost/version"
 Gem::Specification.new do |spec|
   spec.name = "mighost"
   spec.version = Mighost::VERSION
-  spec.authors = ["Eugen"]
+  spec.authors = ["Eugene M"]
   spec.email = ["eugene@amberpixels.io"]
 
   spec.summary = "Rollback Rails migrations even when the migration file is missing"
@@ -18,16 +18,13 @@ Gem::Specification.new do |spec|
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["changelog_uri"] = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  spec.metadata["bug_tracker_uri"] = "#{spec.homepage}/issues"
+  spec.metadata["rubygems_mfa_required"] = "true"
 
-  spec.files = Dir.chdir(__dir__) do
-    `git ls-files -z`.split("\x0").reject do |f|
-      (File.expand_path(f) == __FILE__) ||
-        f.start_with?(*%w[bin/ test/ spec/ features/ .git .github appveyor Gemfile])
-    end
-  end
+  spec.files = Dir["lib/**/*.{rb,rake,tt}"] + %w[LICENSE README.md CHANGELOG.md]
   spec.require_paths = ["lib"]
 
   spec.add_dependency "activerecord", ">= 6.1", "< 8.2"
   spec.add_dependency "railties", ">= 6.1", "< 8.2"
-  spec.add_dependency "sqlite3"
+  spec.add_dependency "sqlite3", ">= 1.4"
 end

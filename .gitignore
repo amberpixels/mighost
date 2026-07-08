@@ -8,6 +8,10 @@
 /tmp/
 *.gem
 Gemfile.lock
+spec/examples.txt
+
+# Internal planning notes
+plan*.md
 
 # Mighost local storage
 .mighost.sqlite3
