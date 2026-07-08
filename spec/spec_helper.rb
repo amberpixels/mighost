@@ -24,5 +24,7 @@ RSpec.configure do |config|
 
   config.before do
     Mighost.reset_configuration!
+    Mighost::Snapshot.reset_db!
+    Mighost::GitMetadata.reset!
   end
 end

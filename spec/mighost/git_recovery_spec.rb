@@ -10,13 +10,7 @@ RSpec.describe Mighost::GitRecovery do
     end
   end
 
-  before do
-    # git_available? memoizes per-process; reset so each temp repo is re-checked
-    if described_class.instance_variable_defined?(:@git_available)
-      described_class.remove_instance_variable(:@git_available)
-    end
-    init_repo
-  end
+  before { init_repo }
 
   let(:version) { "20260702110000" }
   let(:filename) { "#{version}_add_utility_belt_to_batcaves.rb" }

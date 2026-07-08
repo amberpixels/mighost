@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "tempfile"
+require "active_support/core_ext/object/blank"
 require_relative "snapshot"
 require_relative "git_recovery"
 require_relative "worktree_recovery"
@@ -70,42 +71,29 @@ module Mighost
     end
 
     def load_and_execute_down(temp_file)
-      # Load the migration file
+      class_name = extract_class_name
+      unless class_name
+        raise RollbackFailed, "Could not find migration class in #{filename}"
+      end
+
       load temp_file.path
 
-      # Find the migration class
-      migration_class = find_migration_class
+      unless Object.const_defined?(class_name)
+        raise RollbackFailed, "Loading #{filename} did not define #{class_name}"
+      end
 
-      raise RollbackFailed, "Could not find migration class in #{filename}" unless migration_class
-
-      # Execute down
-      migration_instance = migration_class.new
-      migration_instance.migrate(:down)
+      Object.const_get(class_name).new.migrate(:down)
     rescue ActiveRecord::IrreversibleMigration => e
       raise RollbackFailed, "Migration #{version} is irreversible: #{e.message}"
+    rescue RollbackFailed
+      raise
     rescue => e
       raise RollbackFailed, "Failed to rollback #{version}: #{e.message}"
-    end
-
-    def find_migration_class
-      # Try to extract class name from content
-      class_name = extract_class_name
-      return class_name.constantize if class_name && Object.const_defined?(class_name)
-
-      # Fallback: find any newly defined migration class
-      find_recent_migration_class
     end
 
     def extract_class_name
       match = content.match(/class\s+(\w+)\s*<\s*ActiveRecord::Migration(\[\d+\.\d+\])?/)
       match[1] if match
-    end
-
-    def find_recent_migration_class
-      # Get all constants that are migrations
-      ObjectSpace.each_object(Class).find do |klass|
-        klass < ActiveRecord::Migration && !klass.name.nil?
-      end
     end
 
     def remove_from_schema_migrations
@@ -116,33 +104,8 @@ module Mighost
     end
 
     class << self
-      def rollback_all_orphaned!(force: false)
-        orphans = OrphanDetector.detect.select(&:recoverable?)
-
-        return {rolled_back: [], failed: []} if orphans.empty?
-
-        results = {rolled_back: [], failed: []}
-
-        orphans.each do |orphan|
-          rollback_single(orphan.version, results)
-        end
-
-        results
-      end
-
       def rollback_version!(version)
-        rollbacker = new(version)
-        rollbacker.rollback!
-      end
-
-      private
-
-      def rollback_single(version, results)
-        rollbacker = new(version)
-        rollbacker.rollback!
-        results[:rolled_back] << version
-      rescue => e
-        results[:failed] << {version: version, error: e.message}
+        new(version).rollback!
       end
     end
   end

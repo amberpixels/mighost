@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require "time"
+require "digest"
+require "active_support/core_ext/time"
+
 module Mighost
   class Snapshot
     attr_accessor :id, :version, :content, :filename, :branch_name, :git_sha, :content_hash, :migrated_at, :source,
@@ -208,6 +212,13 @@ module Mighost
           "SELECT version FROM #{table_name} WHERE version != ?",
           [SCAN_METADATA_VERSION]
         ).flatten
+      end
+
+      # Close and forget the database handle. Needed when storage_path changes
+      # (the handle is memoized on first access).
+      def reset_db!
+        @db&.close
+        @db = nil
       end
 
       private

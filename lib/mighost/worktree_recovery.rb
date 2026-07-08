@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require "shellwords"
+require "active_support/core_ext/object/blank"
+require_relative "git_metadata"
+
 module Mighost
   # Searches other git worktrees for migration files that exist on disk
   # but haven't been committed yet (invisible to git log --all)
@@ -82,8 +86,9 @@ module Mighost
       end
 
       def worktree_git_user(path)
-        name = `git -C #{path} config user.name 2>/dev/null`.strip
-        email = `git -C #{path} config user.email 2>/dev/null`.strip
+        escaped = Shellwords.escape(path)
+        name = `git -C #{escaped} config user.name 2>/dev/null`.strip
+        email = `git -C #{escaped} config user.email 2>/dev/null`.strip
         [name.presence, email.presence]
       end
 

@@ -24,7 +24,7 @@ module Mighost
       end
 
       def reset!
-        @git_available = nil
+        remove_instance_variable(:@git_available) if defined?(@git_available)
       end
     end
   end

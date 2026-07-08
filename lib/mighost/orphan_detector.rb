@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "active_support/core_ext/object/blank"
+require "active_support/core_ext/enumerable"
 require_relative "snapshot"
 require_relative "git_metadata"
 

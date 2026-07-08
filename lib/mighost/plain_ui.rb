@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "active_support/core_ext/object/blank"
 require_relative "formatting"
 
 module Mighost
@@ -13,7 +14,6 @@ module Mighost
   #   render_orphans(orphans)
   #   render_records(records, limit:, total_count:)
   #   render_recoverable_list(orphans)
-  #   render_rollback_results(results)
   #   render_scan_details(details)
   #   render_scan_results(captured:, git_recovered:, worktree_recovered:, branch:, sha:)
   #   render_dismiss_preview(versions, orphan_map)
@@ -98,18 +98,6 @@ module Mighost
       orphans.each do |orphan|
         name = orphan.filename || "(unknown)"
         puts "  #{orphan.version} - #{name}"
-      end
-    end
-
-    def render_rollback_results(results)
-      if results[:rolled_back].any?
-        success "\nSuccessfully rolled back:"
-        results[:rolled_back].each { |v| puts "  #{v}" }
-      end
-
-      if results[:failed].any?
-        error "\nFailed to rollback:"
-        results[:failed].each { |f| puts "  #{f[:version]}: #{f[:error]}" }
       end
     end
 

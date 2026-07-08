@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "time"
+require "shellwords"
+require_relative "git_metadata"
 
 module Mighost
   # Searches git history to find migration files that exist in other branches/commits
@@ -9,7 +11,7 @@ module Mighost
       # Find migration file content from git history
       # Returns { content:, filename:, branch:, sha:, commit_date: } or nil
       def find_migration(version)
-        return nil unless git_available?
+        return nil unless GitMetadata.git_available?
 
         # Search for the migration file across all branches using --all
         pattern = "db/migrate/#{version}_*.rb"
@@ -31,12 +33,6 @@ module Mighost
         }
       end
 
-      def git_available?
-        return @git_available if defined?(@git_available)
-
-        @git_available = system("git rev-parse --git-dir > /dev/null 2>&1")
-      end
-
       private
 
       def find_latest_commit_with_file(pattern)
@@ -47,7 +43,7 @@ module Mighost
         # last touch was a delete resolves to the deleting commit, where the file
         # no longer exists and `git show` fails
         fmt = "%H\t%aI\t%D\t%aN\t%aE"
-        cmd = "git log --all -1 --diff-filter=d --format='#{fmt}' --name-only -- #{shell_escape(pattern)} 2>/dev/null"
+        cmd = "git log --all -1 --diff-filter=d --format='#{fmt}' --name-only -- #{Shellwords.escape(pattern)} 2>/dev/null"
         output = `#{cmd}`.strip
         return nil if output.empty?
 
@@ -123,14 +119,10 @@ module Mighost
       end
 
       def get_file_content(sha, path)
-        content = `git show #{shell_escape(sha)}:#{shell_escape(path)} 2>/dev/null`
+        content = `git show #{Shellwords.escape("#{sha}:#{path}")} 2>/dev/null`
         return nil unless $?.success?
 
         content
-      end
-
-      def shell_escape(str)
-        "'" + str.gsub("'", "'\\''") + "'"
       end
     end
   end
