@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "time"
+
 module Mighost
   # Searches git history to find migration files that exist in other branches/commits
   module GitRecovery
@@ -41,8 +43,11 @@ module Mighost
         # Use git log --all to search across ALL refs in a single command
         # %D shows decorated refs (branches/tags pointing to commit)
         # --name-only includes the filename in output
+        # --diff-filter=d excludes deletion commits: without it, a migration whose
+        # last touch was a delete resolves to the deleting commit, where the file
+        # no longer exists and `git show` fails
         fmt = "%H\t%aI\t%D\t%aN\t%aE"
-        cmd = "git log --all -1 --format='#{fmt}' --name-only -- #{shell_escape(pattern)} 2>/dev/null"
+        cmd = "git log --all -1 --diff-filter=d --format='#{fmt}' --name-only -- #{shell_escape(pattern)} 2>/dev/null"
         output = `#{cmd}`.strip
         return nil if output.empty?
 

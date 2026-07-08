@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "active_support/core_ext/integer/time"
+
 module Mighost
   class Configuration
     # Path to SQLite file (relative to Rails.root)
