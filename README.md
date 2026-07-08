@@ -14,6 +14,13 @@
 
 ---
 
+> [!TIP]
+> Mighost is the recovery engine behind the ghost-migration features of
+> [**railbow**](https://github.com/amberpixels/railbow), which wraps it in rich, colorful
+> `db:migrate:status` output. If you want beautiful Rails CLI output *and* ghost recovery
+> in one step, you probably want to install railbow directly — it detects mighost and
+> uses it automatically.
+
 ## The Problem
 
 When working with Rails migrations across git branches:
