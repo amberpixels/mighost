@@ -33,12 +33,14 @@ module Mighost
         return
       end
 
-      actionable, suggested = orphans.partition(&:actionable?)
+      superseded, rest = orphans.partition(&:superseded?)
+      actionable, suggested = rest.partition(&:actionable?)
 
       recoverable_count = orphans.count(&:recoverable?)
       suggested_count = suggested.count
 
       header_parts = ["#{orphans.count} total", "#{recoverable_count} recoverable"]
+      header_parts << "#{superseded.count} superseded" if superseded.any?
       header_parts << "#{suggested_count} suggested to dismiss" if suggested_count.positive?
       puts "\nOrphaned migrations (#{header_parts.join(", ")}):\n\n"
 
@@ -49,6 +51,11 @@ module Mighost
       end
 
       suggested.each { |o| puts "  #{orphan_line(o)}" }
+
+      if superseded.any?
+        puts "\n  Superseded (safe to forget — schema is owned by a newer version):\n"
+        superseded.each { |o| puts "  #{orphan_line(o)}  superseded by #{o.superseded_by}" }
+      end
 
       if suggested_count.positive?
         puts "\nTip: Run 'rails mighost:dismiss OLD=1' to bulk-dismiss the #{suggested_count} old migrations."
@@ -108,7 +115,14 @@ module Mighost
         when :captured
           info "Captured: #{detail[:filename]}"
         when :git_recovered
-          info "Git recovered: #{detail[:filename]} (from #{detail[:branch]})"
+          location = if detail[:branch]
+            "from #{detail[:branch]}"
+          elsif detail[:deleted_in_sha]
+            "deleted in #{detail[:deleted_in_sha]}"
+          else
+            "from history"
+          end
+          info "Git recovered: #{detail[:filename]} (#{location})"
         when :worktree_recovered
           info "Worktree recovered: #{detail[:filename]} (from #{detail[:branch]})"
         end
@@ -213,7 +227,14 @@ module Mighost
       version = orphan.version
       name = format_name(orphan.filename)
       recovery = orphan.recoverable? ? "recoverable (#{format_recovery(orphan.recovery_source)})" : "not recoverable"
-      branch = orphan.branch_name ? "branch:#{truncate(orphan.branch_name, 30)}" : ""
+      branch = if orphan.branch_name
+        "branch:#{truncate(orphan.branch_name, 30)}"
+      elsif orphan.deleted_in_sha
+        # File is gone from every branch tip — say where it was deleted instead of guessing a branch
+        "deleted in:#{orphan.deleted_in_sha}"
+      else
+        ""
+      end
       author = orphan.author_name ? "author:#{truncate(orphan.author_name, 20)}" : ""
 
       parts = [version, name.ljust(42), recovery.ljust(24)]

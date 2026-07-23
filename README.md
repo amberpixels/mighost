@@ -127,8 +127,34 @@ Mighost.configure do |config|
 
   # Enable/disable (disabled in production by default)
   config.enabled = !Rails.env.production?
+
+  # Hide superseded orphans from status/detection (off by default —
+  # supersession is a name-suffix heuristic, and silently dropping rows
+  # could mask genuine schema drift)
+  config.hide_superseded = false
 end
 ```
+
+## Superseded migrations
+
+Some ghosts aren't lost — they were *re-timestamped*. When a migration ships with a bad
+timestamp and gets renamed to a new version, restoring from a production dump leaves the old
+version row in `schema_migrations` forever, with no file anywhere.
+
+Mighost detects this: a ghost whose migration name suffix is owned by another **applied**
+version with a file on disk is classified as **superseded** and listed in its own calmer
+`Superseded (safe to forget)` section of `mighost:status`, showing the superseding version
+instead of the alarming ghost treatment. `OrphanedMigration#superseded_by` /
+`#superseded?` expose the classification programmatically.
+
+## Honest branch attribution
+
+When Mighost recovers a ghost from git history, the reported branch is one whose **tip still
+has the file** — preferring the current branch, then the default branch, then local over
+remote branches (remote-only matches keep their `origin/` prefix). If the file is gone from
+every tip, Mighost reports no branch at all and instead records where it went:
+`deleted_in_sha`, `deleted_at`, `deleted_by` — rendered as `deleted in:<sha>` in status
+output. No more pointing you at an unrelated branch that merely contains the commit.
 
 ## Rich Output with Railbow
 
@@ -157,6 +183,9 @@ Mighost::API.scan!(rescan: false)                  # => {captured:, git_recovere
 
 # Rollback
 Mighost::API.rollback_version!("20240115123456")   # raises on failure
+
+# Supersession check (read-only)
+Mighost::API.superseded_by("20240115123456")       # => superseding version or nil
 ```
 
 ### UI Adapter

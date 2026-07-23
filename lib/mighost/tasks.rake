@@ -53,6 +53,10 @@ namespace :mighost do
       ui.hint "#{dismissed_count} dismissed migration(s) hidden. Use SHOW_DISMISSED=1 to show." if dismissed_count.positive?
     end
 
+    if Mighost.configuration.hide_superseded
+      ui.hint "Superseded migrations are hidden (config.hide_superseded)."
+    end
+
     non_recoverable = orphans.reject(&:recoverable?)
     if non_recoverable.any? && Mighost::OrphanDetector.branch_changed?
       ui.hint "Branch changed since last scan. Run 'rails mighost:scan' to update recovery info."

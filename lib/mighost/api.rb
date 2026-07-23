@@ -7,6 +7,7 @@ require_relative "snapshot"
 require_relative "rollbacker"
 require_relative "capturer"
 require_relative "git_recovery"
+require_relative "supersession"
 require_relative "worktree_recovery"
 require_relative "git_metadata"
 require_relative "formatting"
@@ -96,9 +97,12 @@ module Mighost
           git_sha: git_data[:sha],
           source: "git",
           author_name: git_data[:author_name],
-          author_email: git_data[:author_email]
+          author_email: git_data[:author_email],
+          deleted_in_sha: git_data[:deleted_in_sha],
+          deleted_at: git_data[:deleted_at],
+          deleted_by: git_data[:deleted_by]
         )
-        details << {type: :git_recovered, filename: git_data[:filename], branch: git_data[:branch]}
+        details << {type: :git_recovered, filename: git_data[:filename], branch: git_data[:branch], deleted_in_sha: git_data[:deleted_in_sha]}
         git_recovered += 1
       end
 
@@ -138,6 +142,15 @@ module Mighost
         sha: sha,
         details: details
       }
+    end
+
+    # Returns the superseding version (string) for a ghost, or nil.
+    # Read-only: resolves the ghost's filename from its snapshot, no recovery side effects.
+    def superseded_by(version)
+      snapshot = Snapshot.find_by_version(version)
+      return nil unless snapshot&.filename.present?
+
+      Supersession.find_superseder(version, filename: snapshot.filename)
     end
 
     def dismiss(version)

@@ -8,7 +8,7 @@ require "active_support/core_ext/time"
 module Mighost
   class Snapshot
     attr_accessor :id, :version, :content, :filename, :branch_name, :git_sha, :content_hash, :migrated_at, :source,
-      :dismissed, :dismissed_at, :author_name, :author_email
+      :dismissed, :dismissed_at, :author_name, :author_email, :deleted_in_sha, :deleted_at, :deleted_by
 
     # Special version used to store scan metadata
     SCAN_METADATA_VERSION = "__scan_metadata__"
@@ -37,7 +37,10 @@ module Mighost
             dismissed INTEGER DEFAULT 0,
             dismissed_at TEXT,
             author_name TEXT,
-            author_email TEXT
+            author_email TEXT,
+            deleted_in_sha TEXT,
+            deleted_at TEXT,
+            deleted_by TEXT
           )
         SQL
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_#{table_name}_version ON #{table_name}(version)")
@@ -70,7 +73,10 @@ module Mighost
             git_sha: git_data[:sha],
             source: "git",
             author_name: git_data[:author_name],
-            author_email: git_data[:author_email]
+            author_email: git_data[:author_email],
+            deleted_in_sha: git_data[:deleted_in_sha],
+            deleted_at: git_data[:deleted_at],
+            deleted_by: git_data[:deleted_by]
           )
         end
 
@@ -89,23 +95,25 @@ module Mighost
         )
       end
 
-      def store(version:, content:, filename:, branch_name: nil, git_sha: nil, source: "file", author_name: nil, author_email: nil)
+      def store(version:, content:, filename:, branch_name: nil, git_sha: nil, source: "file", author_name: nil, author_email: nil,
+        deleted_in_sha: nil, deleted_at: nil, deleted_by: nil)
         ensure_table_exists!
         content_hash = Digest::SHA256.hexdigest(content)
         migrated_at = Time.current.iso8601
+        deleted_at = deleted_at.iso8601 if deleted_at.respond_to?(:iso8601)
 
         existing = find_by_version(version)
         if existing
-          db.execute(<<~SQL, [content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email, version.to_s])
+          db.execute(<<~SQL, [content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email, deleted_in_sha, deleted_at, deleted_by, version.to_s])
             UPDATE #{table_name}
             SET content = ?, filename = ?, branch_name = ?, git_sha = ?, content_hash = ?, migrated_at = ?, source = ?,
-                author_name = ?, author_email = ?
+                author_name = ?, author_email = ?, deleted_in_sha = ?, deleted_at = ?, deleted_by = ?
             WHERE version = ?
           SQL
         else
-          db.execute(<<~SQL, [version.to_s, content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email])
-            INSERT INTO #{table_name} (version, content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          db.execute(<<~SQL, [version.to_s, content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email, deleted_in_sha, deleted_at, deleted_by])
+            INSERT INTO #{table_name} (version, content, filename, branch_name, git_sha, content_hash, migrated_at, source, author_name, author_email, deleted_in_sha, deleted_at, deleted_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           SQL
         end
 
@@ -196,9 +204,9 @@ module Mighost
       # Lightweight version - only metadata, no content (for status display)
       def all_metadata
         ensure_table_exists!
-        cols = %i[version filename branch_name git_sha migrated_at source dismissed author_name author_email]
+        cols = %i[version filename branch_name git_sha migrated_at source dismissed author_name author_email deleted_in_sha deleted_at deleted_by]
         db.execute(
-          "SELECT version, filename, branch_name, git_sha, migrated_at, source, dismissed, author_name, author_email FROM #{table_name} WHERE version != ?",
+          "SELECT version, filename, branch_name, git_sha, migrated_at, source, dismissed, author_name, author_email, deleted_in_sha, deleted_at, deleted_by FROM #{table_name} WHERE version != ?",
           [SCAN_METADATA_VERSION]
         ).map do |row|
           record = new(cols.zip(row).to_h)
@@ -249,9 +257,18 @@ module Mighost
         unless columns.include?("author_email")
           db.execute("ALTER TABLE #{table_name} ADD COLUMN author_email TEXT")
         end
+        unless columns.include?("deleted_in_sha")
+          db.execute("ALTER TABLE #{table_name} ADD COLUMN deleted_in_sha TEXT")
+        end
+        unless columns.include?("deleted_at")
+          db.execute("ALTER TABLE #{table_name} ADD COLUMN deleted_at TEXT")
+        end
+        unless columns.include?("deleted_by")
+          db.execute("ALTER TABLE #{table_name} ADD COLUMN deleted_by TEXT")
+        end
       end
 
-      SNAPSHOT_COLUMNS = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at author_name author_email].freeze
+      SNAPSHOT_COLUMNS = %i[id version content filename branch_name git_sha content_hash migrated_at source dismissed dismissed_at author_name author_email deleted_in_sha deleted_at deleted_by].freeze
       private_constant :SNAPSHOT_COLUMNS
 
       def row_to_snapshot(row)

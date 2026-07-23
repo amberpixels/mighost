@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-23
+
+### Added
+
+- Superseded-migration classification: a ghost whose migration name suffix is
+  owned by another applied version with a file on disk is labeled superseded
+  (new `Mighost::Supersession` module, `OrphanedMigration#superseded_by` /
+  `#superseded?`, `Mighost::API.superseded_by`, and a dedicated
+  "Superseded (safe to forget)" section in `mighost:status`).
+- `config.hide_superseded` (default `false`) to hide superseded orphans from
+  detection.
+- Deletion metadata for ghosts gone from every branch tip: `deleted_in_sha`,
+  `deleted_at`, `deleted_by` on snapshots and orphans, rendered as
+  `deleted in:<sha>` in status output.
+
+### Fixed
+
+- Branch attribution no longer guesses: the reported branch is one whose tip
+  still has the migration file (preferring current branch → default branch →
+  local → remote by recency), instead of the first alphabetical branch that
+  merely contains the commit. Remote-only matches keep their `origin/` prefix
+  instead of masquerading as local branches.
+
 ## [0.4.0] - 2026-07-08
 
 First public release.
