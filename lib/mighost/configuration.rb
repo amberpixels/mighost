@@ -21,12 +21,17 @@ module Mighost
     # Threshold for suggesting dismissal of old unrecoverable migrations
     attr_accessor :dismiss_old_threshold
 
+    # Hide superseded orphans from detection (off by default: supersession is a
+    # name-suffix heuristic, and silently dropping rows could mask schema drift)
+    attr_accessor :hide_superseded
+
     def initialize
       @storage_path = ".mighost.sqlite3"
       @auto_capture = true
       @store_git_metadata = true
       @enabled = true
       @dismiss_old_threshold = 6.months
+      @hide_superseded = false
     end
 
     def enabled?

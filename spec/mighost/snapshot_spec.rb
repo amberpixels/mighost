@@ -43,6 +43,22 @@ RSpec.describe Mighost::Snapshot do
       expect(described_class.find_by_version("19990101000000")).to be_nil
     end
 
+    it "round-trips deletion metadata", :aggregate_failures do
+      store_snapshot(version,
+        deleted_in_sha: "abc123def456",
+        deleted_at: Time.utc(2026, 7, 6, 13, 0, 0),
+        deleted_by: "Alfred Pennyworth")
+
+      found = described_class.find_by_version(version)
+      expect(found.deleted_in_sha).to eq("abc123def456")
+      expect(found.deleted_at).to eq("2026-07-06T13:00:00Z")
+      expect(found.deleted_by).to eq("Alfred Pennyworth")
+
+      metadata = described_class.all_metadata.first
+      expect(metadata.deleted_in_sha).to eq("abc123def456")
+      expect(metadata.deleted_by).to eq("Alfred Pennyworth")
+    end
+
     it "updates the existing row on re-store instead of duplicating", :aggregate_failures do
       store_snapshot
       store_snapshot(version, branch_name: "main")

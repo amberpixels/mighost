@@ -5,13 +5,16 @@ require "active_support/core_ext/object/blank"
 require "active_support/core_ext/enumerable"
 require_relative "snapshot"
 require_relative "git_metadata"
+require_relative "supersession"
 
 module Mighost
   class OrphanDetector
     class OrphanedMigration
-      attr_reader :version, :filename, :branch_name, :git_sha, :migrated_at, :source, :dismissed, :author_name, :author_email
+      attr_reader :version, :filename, :branch_name, :git_sha, :migrated_at, :source, :dismissed, :author_name, :author_email,
+        :superseded_by, :deleted_in_sha, :deleted_at, :deleted_by
 
-      def initialize(version:, filename: nil, branch_name: nil, git_sha: nil, migrated_at: nil, source: nil, dismissed: false, author_name: nil, author_email: nil)
+      def initialize(version:, filename: nil, branch_name: nil, git_sha: nil, migrated_at: nil, source: nil, dismissed: false,
+        author_name: nil, author_email: nil, superseded_by: nil, deleted_in_sha: nil, deleted_at: nil, deleted_by: nil)
         @version = version
         @filename = filename
         @branch_name = branch_name
@@ -21,6 +24,15 @@ module Mighost
         @dismissed = dismissed
         @author_name = author_name
         @author_email = author_email
+        @superseded_by = superseded_by
+        @deleted_in_sha = deleted_in_sha
+        @deleted_at = deleted_at
+        @deleted_by = deleted_by
+      end
+
+      # Schema change lives on under a re-timestamped version — a stale row, not a lost migration
+      def superseded?
+        !superseded_by.nil?
       end
 
       def recoverable?
@@ -74,9 +86,11 @@ module Mighost
       def detect(include_dismissed: false)
         # Load everything upfront for performance
         versions = migrated_versions
-        file_versions = migration_file_versions
+        disk_files = migration_file_basenames
+        file_versions = disk_files.map { |basename| basename.split("_").first }.to_set
         dismissed_set = Snapshot.dismissed_versions.to_set
         snapshots_by_version = Snapshot.all_metadata.index_by(&:version)
+        hide_superseded = Mighost.configuration.hide_superseded
 
         log "Found #{versions.count} migrated versions, #{file_versions.count} files on disk"
 
@@ -92,6 +106,16 @@ module Mighost
           snapshot = snapshots_by_version[version]
           log "  #{version} - orphaned#{", has snapshot (#{snapshot.source})" if snapshot}"
 
+          superseded_by = if snapshot&.filename.present?
+            Supersession.find_superseder(
+              version,
+              filename: snapshot.filename,
+              applied_versions: versions,
+              disk_files: disk_files
+            )
+          end
+          next if superseded_by && hide_superseded
+
           orphaned << OrphanedMigration.new(
             version: version,
             filename: snapshot&.filename,
@@ -101,7 +125,11 @@ module Mighost
             source: snapshot&.source,
             dismissed: is_dismissed,
             author_name: snapshot&.author_name,
-            author_email: snapshot&.author_email
+            author_email: snapshot&.author_email,
+            superseded_by: superseded_by,
+            deleted_in_sha: snapshot&.deleted_in_sha,
+            deleted_at: snapshot&.deleted_at,
+            deleted_by: snapshot&.deleted_by
           )
         end
 
@@ -149,16 +177,11 @@ module Mighost
         Mighost::Base.connection.quote_table_name("schema_migrations")
       end
 
-      # Load all migration file versions at once (single glob per path)
-      def migration_file_versions
-        versions = Set.new
-        migration_paths.each do |path|
-          Dir.glob(File.join(path, "*.rb")).each do |file|
-            version = File.basename(file).split("_").first
-            versions << version
-          end
+      # Load all migration file basenames at once (single glob per path)
+      def migration_file_basenames
+        migration_paths.flat_map do |path|
+          Dir.glob(File.join(path, "*.rb")).map { |file| File.basename(file) }
         end
-        versions
       end
 
       def migration_paths

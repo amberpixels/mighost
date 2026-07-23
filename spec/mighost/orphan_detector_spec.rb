@@ -66,6 +66,41 @@ RSpec.describe Mighost::OrphanDetector do
       expect(shown.first.dismissed).to be(true)
     end
 
+    it "classifies a ghost as superseded when an applied on-disk version owns its suffix", :aggregate_failures do
+      newer_version = "20260706130000"
+      mark_migrated(ghost_version)
+      mark_migrated(newer_version)
+      File.write("db/migrate/#{newer_version}_add_cape.rb", "# re-timestamped")
+      Mighost::Snapshot.store(
+        version: ghost_version,
+        content: "class AddCape < ActiveRecord::Migration[8.1]\nend\n",
+        filename: "#{ghost_version}_add_cape.rb",
+        source: "git"
+      )
+
+      orphan = described_class.detect.first
+
+      expect(orphan.version).to eq(ghost_version)
+      expect(orphan.superseded_by).to eq(newer_version)
+      expect(orphan).to be_superseded
+    end
+
+    it "hides superseded orphans when hide_superseded is enabled", :aggregate_failures do
+      newer_version = "20260706130000"
+      mark_migrated(ghost_version)
+      mark_migrated(newer_version)
+      File.write("db/migrate/#{newer_version}_add_cape.rb", "# re-timestamped")
+      Mighost::Snapshot.store(
+        version: ghost_version,
+        content: "class AddCape < ActiveRecord::Migration[8.1]\nend\n",
+        filename: "#{ghost_version}_add_cape.rb",
+        source: "git"
+      )
+      Mighost.configure { |c| c.hide_superseded = true }
+
+      expect(described_class.detect).to be_empty
+    end
+
     it "returns nothing when every migrated version has a file" do
       mark_migrated(present_version)
       File.write("db/migrate/#{present_version}_add_grappling_hook.rb", "# present")
